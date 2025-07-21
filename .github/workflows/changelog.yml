@@ -9,7 +9,7 @@ on:
 jobs:
   changelog:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip changelog]')
     permissions:
       contents: write
     
@@ -23,27 +23,35 @@ jobs:
       uses: orhun/git-cliff-action@v4
       with:
         config: cliff.toml
-        args: --verbose
+        args: --verbose --unreleased --prepend CHANGELOG.md
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        OUTPUT: CHANGELOG.md
 
     - name: Commit changelog
       run: |
         git config user.name 'github-actions[bot]'
         git config user.email 'github-actions[bot]@users.noreply.github.com'
         
-        # Check if CHANGELOG.md was created and has changes
+        # Check if CHANGELOG.md exists and has the v0.1.0 section
         if [[ -f CHANGELOG.md ]]; then
+          if grep -q "## \[0\.1\.0\]" CHANGELOG.md; then
+            echo "✅ v0.1.0 section preserved in changelog"
+          else
+            echo "❌ Warning: v0.1.0 section missing from changelog"
+            echo "Skipping commit to prevent data loss"
+            exit 1
+          fi
+          
           git add CHANGELOG.md
           # Only commit if there are staged changes
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "docs: update changelog"
+            echo "Committing changelog updates..."
+            git commit -m "docs: update changelog [skip ci]"
             git push
           fi
         else
-          echo "CHANGELOG.md was not generated"
+          echo "CHANGELOG.md was not found"
           exit 1
         fi 
