@@ -18,18 +18,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // From array
     let t1 = Tensor::from_array(Array1::from_vec(vec![1., 2., 3., 4.]));
-    println!("From vector: {}", t1);
+    println!("From vector: {t1}");
 
     // Zeros and ones
     let t2 = Tensor::zeros(&[2, 3]);
-    println!("Zeros (2x3):\n{}", t2);
+    println!("Zeros (2x3):\n{t2}");
 
     let t3 = Tensor::ones(&[3, 2]);
-    println!("Ones (3x2):\n{}", t3);
+    println!("Ones (3x2):\n{t3}");
 
     // From shape and data
     let t4 = Tensor::from_shape_vec(&[2, 4], vec![1., 2., 3., 4., 5., 6., 7., 8.])?;
-    println!("From shape and data (2x4):\n{}", t4);
+    println!("From shape and data (2x4):\n{t4}");
 
     // Element-wise operations
     println!("\n2. Element-wise Operations");
@@ -44,16 +44,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         vec![2., 2., 2., 3., 3., 3.],
     )?);
 
-    println!("Tensor A (2x3):\n{}", a);
-    println!("Tensor B (2x3):\n{}", b);
+    println!("Tensor A (2x3):\n{a}");
+    println!("Tensor B (2x3):\n{b}");
 
     // Addition
     let add_result = a.add(&b)?;
-    println!("A + B:\n{}", add_result);
+    println!("A + B:\n{add_result}");
 
     // Multiplication
     let mul_result = a.mul(&b)?;
-    println!("A * B (element-wise):\n{}", mul_result);
+    println!("A * B (element-wise):\n{mul_result}");
 
     // Matrix operations
     println!("\n3. Matrix Operations");
@@ -68,16 +68,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         vec![1., 0., 0., 1., 1., 1., 2., 1.],
     )?);
 
-    println!("Matrix M1 (3x4):\n{}", m1);
-    println!("Matrix M2 (4x2):\n{}", m2);
+    println!("Matrix M1 (3x4):\n{m1}");
+    println!("Matrix M2 (4x2):\n{m2}");
 
     // Matrix multiplication
     let matmul_result = m1.matmul(&m2)?;
-    println!("M1 × M2 (matrix multiplication):\n{}", matmul_result);
+    println!("M1 × M2 (matrix multiplication):\n{matmul_result}");
 
     // Transpose
     let m1_t = m1.transpose()?;
-    println!("M1 transposed (4x3):\n{}", m1_t);
+    println!("M1 transposed (4x3):\n{m1_t}");
 
     // Reshaping
     println!("\n4. Reshaping Operations");
@@ -87,32 +87,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &[2, 6],
         vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.],
     )?;
-    println!("Original (2x6):\n{}", original);
+    println!("Original (2x6):\n{original}");
 
     // Reshape to different dimensions
     let reshaped1 = original.reshape(&[3, 4])?;
-    println!("Reshaped to (3x4):\n{}", reshaped1);
+    println!("Reshaped to (3x4):\n{reshaped1}");
 
     let reshaped2 = original.reshape(&[4, 3])?;
-    println!("Reshaped to (4x3):\n{}", reshaped2);
+    println!("Reshaped to (4x3):\n{reshaped2}");
 
     let reshaped3 = original.reshape(&[12])?;
-    println!("Reshaped to (12,):\n{}", reshaped3);
+    println!("Reshaped to (12,):\n{reshaped3}");
 
     // Activation functions
     println!("\n5. Activation Functions");
     println!("=======================");
 
     let input = Tensor::from_array(Array1::from_vec(vec![-3., -1., -0.5, 0., 0.5, 1., 3.]));
-    println!("Input: {}", input);
+    println!("Input: {input}");
 
     // ReLU
     let relu_output = input.relu();
-    println!("ReLU: {}", relu_output);
+    println!("ReLU: {relu_output}");
 
     // Sigmoid
     let sigmoid_output = input.sigmoid();
-    println!("Sigmoid: {}", sigmoid_output);
+    println!("Sigmoid: {sigmoid_output}");
 
     // Advanced operations
     println!("\n6. Advanced Examples");
@@ -127,17 +127,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Chaining operations
     println!("\nChaining operations example:");
     let start = Tensor::from_array(Array2::from_shape_vec((2, 2), vec![1., 2., 3., 4.])?);
-    println!("Start: {}", start);
+    println!("Start: {start}");
 
     // Apply ReLU then add a constant tensor
     let step1 = start.relu(); // ReLU (no-op for positive values)
     let constant = Tensor::from_array(Array2::from_shape_vec((2, 2), vec![0.1, 0.1, 0.1, 0.1])?);
     let step2 = step1.add(&constant)?;
-    println!("After ReLU + 0.1: {}", step2);
+    println!("After ReLU + 0.1: {step2}");
 
     // Then apply sigmoid
     let final_result = step2.sigmoid();
-    println!("After sigmoid: {}", final_result);
+    println!("After sigmoid: {final_result}");
 
     // Performance demonstration
     println!("\n7. Performance Test");
@@ -152,7 +152,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _result = large_a.add(&large_b)?;
     let add_time = start_time.elapsed();
 
-    println!("Element-wise addition of 100x100 tensors: {:?}", add_time);
+    println!("Element-wise addition of 100x100 tensors: {add_time:?}");
 
     let large_c = Tensor::ones(&[100, 100]);
     let large_d = Tensor::ones(&[100, 100]);
@@ -161,10 +161,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _result = large_c.matmul(&large_d)?;
     let matmul_time = start_time.elapsed();
 
-    println!(
-        "Matrix multiplication of 100x100 tensors: {:?}",
-        matmul_time
-    );
+    println!("Matrix multiplication of 100x100 tensors: {matmul_time:?}");
 
     // Error handling demonstration
     println!("\n8. Error Handling");
@@ -176,21 +173,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Attempting to add incompatible tensors (2x3) + (3x2):");
     match incompatible_a.add(&incompatible_b) {
         Ok(_) => println!("Unexpected success!"),
-        Err(e) => println!("Expected error: {}", e),
+        Err(e) => println!("Expected error: {e}"),
     }
 
     println!("\nAttempting matrix multiplication with incompatible shapes (2x3) × (4x2):");
     let incompatible_c = Tensor::zeros(&[4, 2]);
     match incompatible_a.matmul(&incompatible_c) {
         Ok(_) => println!("Unexpected success!"),
-        Err(e) => println!("Expected error: {}", e),
+        Err(e) => println!("Expected error: {e}"),
     }
 
     println!("\nAttempting invalid reshape (6 elements -> 8 elements):");
     let small_tensor = Tensor::ones(&[2, 3]);
     match small_tensor.reshape(&[2, 4]) {
         Ok(_) => println!("Unexpected success!"),
-        Err(e) => println!("Expected error: {}", e),
+        Err(e) => println!("Expected error: {e}"),
     }
 
     // Tensor comparison
@@ -201,9 +198,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let t_b = Tensor::from_array(Array1::from_vec(vec![1., 2., 3.]));
     let t_c = Tensor::from_array(Array1::from_vec(vec![1., 2., 4.]));
 
-    println!("Tensor A: {}", t_a);
-    println!("Tensor B: {}", t_b);
-    println!("Tensor C: {}", t_c);
+    println!("Tensor A: {t_a}");
+    println!("Tensor B: {t_b}");
+    println!("Tensor C: {t_c}");
 
     println!("A == B: {}", t_a == t_b);
     println!("A == C: {}", t_a == t_c);

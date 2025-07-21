@@ -124,7 +124,7 @@ mod tests {
     #[test]
     fn test_error_display() {
         let err = OnnxError::invalid_dimensions("Invalid tensor shape");
-        let error_string = format!("{}", err);
+        let error_string = format!("{err}");
         assert!(error_string.contains("Invalid dimensions"));
         assert!(error_string.contains("Invalid tensor shape"));
     }

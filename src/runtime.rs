@@ -377,13 +377,11 @@ mod tests {
         // = [0.5 + 0.4 + 0.3, 0.3 + 0.8 + 1.8] + [0.1, 0.2]
         // = [1.2, 2.9] + [0.1, 0.2] = [1.3, 3.1]
         let data = output.data();
-        let expected = vec![1.3, 3.1];
+        let expected = [1.3, 3.1];
         for (actual, &expected) in data.iter().zip(expected.iter()) {
             assert!(
                 (actual - expected).abs() < 1e-6,
-                "Expected {}, got {}",
-                expected,
-                actual
+                "Expected {expected}, got {actual}"
             );
         }
     }
@@ -421,10 +419,12 @@ mod tests {
 
     #[test]
     fn test_execution_stats() {
-        let mut stats = ExecutionStats::default();
-        stats.total_time_ms = 100.0;
-        stats.ops_executed = 5;
-        stats.memory_usage_bytes = 1024 * 1024; // 1MB
+        let stats = ExecutionStats {
+            total_time_ms: 100.0,
+            ops_executed: 5,
+            memory_usage_bytes: 1024 * 1024, // 1MB
+            ..Default::default()
+        };
 
         assert_eq!(stats.avg_op_time(), 20.0);
         assert_eq!(stats.memory_usage_mb(), 1.0);

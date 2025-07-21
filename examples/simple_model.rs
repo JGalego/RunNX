@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Inference completed in {:.2}µs", inference_time.as_micros());
 
     for (name, tensor) in &outputs {
-        println!("\nOutput '{}':", name);
+        println!("\nOutput '{name}':");
         println!("  Shape: {:?}", tensor.shape());
         println!("  Data: {:?}", tensor.data().as_slice().unwrap());
     }
@@ -70,8 +70,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let actual_result = outputs.get("output").unwrap();
     let actual_data = actual_result.data().as_slice().unwrap();
 
-    println!("Expected result: {:?}", expected_result);
-    println!("Actual result:   {:?}", actual_data);
+    println!("Expected result: {expected_result:?}");
+    println!("Actual result:   {actual_data:?}");
 
     // Verify the results
     let mut all_match = true;
@@ -79,8 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let diff = (expected - actual).abs();
         if diff > 1e-6 {
             println!(
-                "❌ Mismatch at index {}: expected {:.6}, got {:.6} (diff: {:.6})",
-                i, expected, actual, diff
+                "❌ Mismatch at index {i}: expected {expected:.6}, got {actual:.6} (diff: {diff:.6})"
             );
             all_match = false;
         }
@@ -94,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Saving Model ===");
     let model_path = "simple_model.json";
     model.to_file(model_path)?;
-    println!("Model saved to: {}", model_path);
+    println!("Model saved to: {model_path}");
 
     // Demonstrate loading the model back
     println!("\n=== Loading Model ===");
@@ -109,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let loaded_result = loaded_outputs.get("output").unwrap();
     let loaded_data = loaded_result.data().as_slice().unwrap();
 
-    println!("\nLoaded model output: {:?}", loaded_data);
+    println!("\nLoaded model output: {loaded_data:?}");
 
     // Verify loaded model produces same results
     let results_match = actual_data
@@ -136,32 +135,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
 
     println!("Tensor A:");
-    println!("{}", a);
+    println!("{a}");
 
     println!("Tensor B:");
-    println!("{}", b);
+    println!("{b}");
 
     // Addition
     let c = a.add(&b)?;
     println!("A + B:");
-    println!("{}", c);
+    println!("{c}");
 
     // Multiplication
     let d = a.mul(&b)?;
     println!("A * B:");
-    println!("{}", d);
+    println!("{d}");
 
     // ReLU
     let e = Tensor::from_array(Array1::from_vec(vec![-2., -1., 0., 1., 2.]));
     let f = e.relu();
     println!("ReLU([-2, -1, 0, 1, 2]):");
-    println!("{}", f);
+    println!("{f}");
 
     // Sigmoid
     let g = Tensor::from_array(Array1::from_vec(vec![-1., 0., 1.]));
     let h = g.sigmoid();
     println!("Sigmoid([-1, 0, 1]):");
-    println!("{}", h);
+    println!("{h}");
 
     println!("\n=== Example Complete ===");
     Ok(())

@@ -95,7 +95,7 @@ mod tests {
 
         // Expected result: [[22, 28], [49, 64]]
         let data = result.data();
-        let expected = vec![22.0, 28.0, 49.0, 64.0];
+        let expected = [22.0, 28.0, 49.0, 64.0];
         for (actual, &expected) in data.iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
         }

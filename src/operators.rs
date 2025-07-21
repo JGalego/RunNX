@@ -8,6 +8,7 @@ use crate::{
     error::{OnnxError, Result},
     tensor::Tensor,
 };
+use std::str::FromStr;
 
 /// Supported ONNX operators
 #[derive(Debug, Clone, PartialEq)]
@@ -22,9 +23,10 @@ pub enum OperatorType {
     Transpose,
 }
 
-impl OperatorType {
-    /// Parse operator type from string
-    pub fn from_str(s: &str) -> Result<Self> {
+impl FromStr for OperatorType {
+    type Err = OnnxError;
+
+    fn from_str(s: &str) -> Result<Self> {
         match s {
             "Add" => Ok(OperatorType::Add),
             "Mul" => Ok(OperatorType::Mul),
@@ -253,9 +255,9 @@ mod tests {
 
     #[test]
     fn test_operator_type_from_str() {
-        assert_eq!(OperatorType::from_str("Add").unwrap(), OperatorType::Add);
-        assert_eq!(OperatorType::from_str("Relu").unwrap(), OperatorType::Relu);
-        assert!(OperatorType::from_str("Unknown").is_err());
+        assert_eq!("Add".parse::<OperatorType>().unwrap(), OperatorType::Add);
+        assert_eq!("Relu".parse::<OperatorType>().unwrap(), OperatorType::Relu);
+        assert!("Unknown".parse::<OperatorType>().is_err());
     }
 
     #[test]
@@ -268,7 +270,7 @@ mod tests {
         let result = execute_operator(&OperatorType::Add, &inputs, &attrs).unwrap();
         assert_eq!(result.len(), 1);
 
-        let expected = vec![5.0, 7.0, 9.0];
+        let expected = [5.0, 7.0, 9.0];
         for (actual, &expected) in result[0].data().iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
         }
@@ -294,7 +296,7 @@ mod tests {
         let result = execute_operator(&OperatorType::Mul, &inputs, &attrs).unwrap();
         assert_eq!(result.len(), 1);
 
-        let expected = vec![10.0, 18.0, 28.0];
+        let expected = [10.0, 18.0, 28.0];
         for (actual, &expected) in result[0].data().iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
         }
@@ -325,7 +327,7 @@ mod tests {
         let result = execute_operator(&OperatorType::Relu, &inputs, &attrs).unwrap();
         assert_eq!(result.len(), 1);
 
-        let expected = vec![0.0, 0.0, 1.0, 2.0];
+        let expected = [0.0, 0.0, 1.0, 2.0];
         for (actual, &expected) in result[0].data().iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
         }

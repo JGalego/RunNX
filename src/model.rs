@@ -291,7 +291,7 @@ impl Model {
             *op_counts.entry(node.op_type.clone()).or_insert(0) += 1;
         }
         for (op_type, count) in op_counts {
-            summary.push_str(&format!("    {}: {}\n", op_type, count));
+            summary.push_str(&format!("    {op_type}: {count}\n"));
         }
 
         summary
@@ -323,9 +323,11 @@ mod tests {
 
     #[test]
     fn test_model_with_metadata() {
-        let mut metadata = ModelMetadata::default();
-        metadata.name = "test_model".to_string();
-        metadata.description = "Test model for unit testing".to_string();
+        let metadata = ModelMetadata {
+            name: "test_model".to_string(),
+            description: "Test model for unit testing".to_string(),
+            ..Default::default()
+        };
 
         let graph = Graph::create_simple_linear();
         let model = Model::with_metadata(metadata, graph);
@@ -392,7 +394,7 @@ mod tests {
     #[test]
     fn test_model_display() {
         let model = Model::create_simple_linear();
-        let display_string = format!("{}", model);
+        let display_string = format!("{model}");
         let summary = model.summary();
 
         assert_eq!(display_string, summary);

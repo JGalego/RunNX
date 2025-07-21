@@ -379,7 +379,7 @@ mod tests {
         let b = Tensor::from_array(Array1::from_vec(vec![4.0, 5.0, 6.0]));
         let result = a.add(&b).unwrap();
 
-        let expected = vec![5.0, 7.0, 9.0];
+        let expected = [5.0, 7.0, 9.0];
         for (actual, &expected) in result.data().iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
         }
@@ -399,7 +399,7 @@ mod tests {
         let b = Tensor::from_array(Array1::from_vec(vec![5.0, 6.0, 7.0]));
         let result = a.mul(&b).unwrap();
 
-        let expected = vec![10.0, 18.0, 28.0];
+        let expected = [10.0, 18.0, 28.0];
         for (actual, &expected) in result.data().iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
         }
@@ -419,7 +419,7 @@ mod tests {
 
         // Expected: [[22, 28], [49, 64]]
         let data = result.data();
-        let expected = vec![22.0, 28.0, 49.0, 64.0];
+        let expected = [22.0, 28.0, 49.0, 64.0];
         for (actual, &expected) in data.iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
         }
@@ -460,7 +460,7 @@ mod tests {
         let tensor = Tensor::from_array(Array1::from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0]));
         let result = tensor.relu();
 
-        let expected = vec![0.0, 0.0, 0.0, 1.0, 2.0];
+        let expected = [0.0, 0.0, 0.0, 1.0, 2.0];
         for (actual, &expected) in result.data().iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
         }

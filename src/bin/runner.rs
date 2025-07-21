@@ -123,7 +123,7 @@ fn main() {
     let args = match Args::parse() {
         Ok(args) => args,
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!("Error: {e}");
             print_help();
             std::process::exit(1);
         }
@@ -139,7 +139,7 @@ fn main() {
     let model = match Model::from_file(&args.model_path) {
         Ok(model) => model,
         Err(e) => {
-            eprintln!("Error loading model: {}", e);
+            eprintln!("Error loading model: {e}");
             std::process::exit(1);
         }
     };
@@ -161,7 +161,7 @@ fn main() {
     let inputs = match load_inputs(&model, args.input_path.as_deref()) {
         Ok(inputs) => inputs,
         Err(e) => {
-            eprintln!("Error loading inputs: {}", e);
+            eprintln!("Error loading inputs: {e}");
             std::process::exit(1);
         }
     };
@@ -180,7 +180,7 @@ fn main() {
     let outputs = match model.run(&inputs) {
         Ok(outputs) => outputs,
         Err(e) => {
-            eprintln!("Error during inference: {}", e);
+            eprintln!("Error during inference: {e}");
             std::process::exit(1);
         }
     };
@@ -203,7 +203,7 @@ fn main() {
             }
         }
         Err(e) => {
-            eprintln!("Error saving outputs: {}", e);
+            eprintln!("Error saving outputs: {e}");
             std::process::exit(1);
         }
     }
@@ -280,7 +280,7 @@ fn save_outputs(
             // Print to console
             println!("\nOutputs:");
             for (name, tensor) in outputs {
-                println!("{}:", name);
+                println!("{name}:");
                 println!("  Shape: {:?}", tensor.shape());
 
                 // Get the raw data as a 1D slice for display

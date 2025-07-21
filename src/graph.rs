@@ -45,7 +45,7 @@ impl Node {
 
     /// Get the operator type as enum
     pub fn get_operator_type(&self) -> Result<OperatorType> {
-        OperatorType::from_str(&self.op_type)
+        self.op_type.parse()
     }
 }
 

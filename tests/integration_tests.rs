@@ -206,7 +206,7 @@ fn test_numerical_stability() {
     // Test with very small numbers
     let small_numbers = Tensor::from_array(Array1::from_vec(vec![1e-20, 1e-10, 1e-5]));
     let small_doubled = small_numbers.add(&small_numbers).unwrap();
-    let expected = vec![2e-20, 2e-10, 2e-5];
+    let expected = [2e-20, 2e-10, 2e-5];
 
     let result_data = small_doubled.data().as_slice().unwrap();
     for (actual, expected) in result_data.iter().zip(expected.iter()) {
@@ -216,7 +216,7 @@ fn test_numerical_stability() {
     // Test with very large numbers
     let large_numbers = Tensor::from_array(Array1::from_vec(vec![1e10, 1e15, 1e20]));
     let large_doubled = large_numbers.add(&large_numbers).unwrap();
-    let expected_large = vec![2e10, 2e15, 2e20];
+    let expected_large = [2e10, 2e15, 2e20];
 
     let result_large = large_doubled.data().as_slice().unwrap();
     for (actual, expected) in result_large.iter().zip(expected_large.iter()) {
@@ -238,8 +238,7 @@ fn test_performance_regression() {
     // Matrix multiplication of 500x500 should complete within a few seconds
     assert!(
         elapsed.as_secs() < 5,
-        "Matrix multiplication took too long: {:?}",
-        elapsed
+        "Matrix multiplication took too long: {elapsed:?}"
     );
 
     let start = std::time::Instant::now();
@@ -249,8 +248,7 @@ fn test_performance_regression() {
     // Addition should be very fast
     assert!(
         elapsed.as_millis() < 100,
-        "Addition took too long: {:?}",
-        elapsed
+        "Addition took too long: {elapsed:?}"
     );
 }
 
