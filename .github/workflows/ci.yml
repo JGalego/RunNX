@@ -209,10 +209,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Rust 1.70 # Adjust based on your MSRV
+    - name: Install Rust 1.74 # Updated to support clap dependency
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: 1.70.0
+        toolchain: 1.74.0
 
     - name: Cache cargo registry
       uses: actions/cache@v4
