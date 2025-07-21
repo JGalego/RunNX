@@ -310,6 +310,7 @@ mod tests {
     use crate::Graph;
     use ndarray::Array2;
     use tempfile::NamedTempFile;
+    use std::fs;
 
     #[test]
     fn test_model_creation() {
@@ -326,7 +327,10 @@ mod tests {
         let metadata = ModelMetadata {
             name: "test_model".to_string(),
             description: "Test model for unit testing".to_string(),
-            ..Default::default()
+            version: "1.2.3".to_string(),
+            producer: "test_producer".to_string(),
+            onnx_version: "1.14.0".to_string(),
+            domain: "test.domain".to_string(),
         };
 
         let graph = Graph::create_simple_linear();
@@ -334,6 +338,45 @@ mod tests {
 
         assert_eq!(model.name(), "test_model");
         assert_eq!(model.description(), "Test model for unit testing");
+        assert_eq!(model.version(), "1.2.3");
+    }
+
+    #[test]
+    fn test_model_metadata_default() {
+        let metadata = ModelMetadata::default();
+        assert_eq!(metadata.name, "onnx-model");
+        assert_eq!(metadata.description, "ONNX model");
+        assert_eq!(metadata.version, "1.0");
+        assert_eq!(metadata.producer, "RunNX");
+        assert_eq!(metadata.onnx_version, "1.9.0");
+        assert_eq!(metadata.domain, "");
+    }
+
+    #[test]
+    fn test_model_accessors() {
+        let metadata = ModelMetadata {
+            name: "test_model".to_string(),
+            description: "Test description".to_string(),
+            version: "2.0.0".to_string(),
+            producer: "Test Producer".to_string(),
+            onnx_version: "1.15.0".to_string(),
+            domain: "ai.test".to_string(),
+        };
+
+        let graph = Graph::create_simple_linear();
+        let model = Model::with_metadata(metadata, graph);
+
+        assert_eq!(model.name(), "test_model");
+        assert_eq!(model.description(), "Test description");
+        assert_eq!(model.version(), "2.0.0");
+        assert_eq!(model.input_names(), vec!["input"]);
+        assert_eq!(model.output_names(), vec!["output"]);
+
+        // Test specs accessors
+        assert_eq!(model.input_specs().len(), 1);
+        assert_eq!(model.output_specs().len(), 1);
+        assert_eq!(model.input_specs()[0].name, "input");
+        assert_eq!(model.output_specs()[0].name, "output");
     }
 
     #[test]
@@ -342,6 +385,21 @@ mod tests {
         let model = Model::new(graph);
 
         assert!(model.validate().is_ok());
+    }
+
+    #[test]
+    fn test_model_validation_empty_name() {
+        let metadata = ModelMetadata {
+            name: "".to_string(),  // Empty name should cause validation error
+            ..Default::default()
+        };
+
+        let graph = Graph::create_simple_linear();
+        let model = Model::with_metadata(metadata, graph);
+
+        let result = model.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("name cannot be empty"));
     }
 
     #[test]
@@ -362,6 +420,45 @@ mod tests {
     }
 
     #[test]
+    fn test_model_run_with_runtime() {
+        let model = Model::create_simple_linear();
+        let runtime = Runtime::with_debug();
+
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "input".to_string(),
+            Tensor::from_shape_vec(&[1, 3], vec![1.0, 2.0, 3.0]).unwrap(),
+        );
+
+        let outputs = model.run_with_runtime(&inputs, &runtime).unwrap();
+        assert!(outputs.contains_key("output"));
+    }
+
+    #[test]
+    fn test_model_run_with_stats() {
+        let model = Model::create_simple_linear();
+
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "input".to_string(),
+            Tensor::from_shape_vec(&[1, 3], vec![1.0, 2.0, 3.0]).unwrap(),
+        );
+
+        let (outputs, stats) = model.run_with_stats(&inputs).unwrap();
+        assert!(outputs.contains_key("output"));
+        assert_eq!(stats.total_time_ms, 0.0); // Default stats for now
+    }
+
+    #[test]
+    fn test_model_run_error_missing_input() {
+        let model = Model::create_simple_linear();
+        let inputs = HashMap::new(); // Missing required input
+
+        let result = model.run(&inputs);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_model_serialization() {
         let model = Model::create_simple_linear();
 
@@ -376,6 +473,43 @@ mod tests {
         assert_eq!(model.name(), loaded_model.name());
         assert_eq!(model.input_names(), loaded_model.input_names());
         assert_eq!(model.output_names(), loaded_model.output_names());
+        assert_eq!(model.description(), loaded_model.description());
+        assert_eq!(model.version(), loaded_model.version());
+    }
+
+    #[test]
+    fn test_model_serialization_custom_metadata() {
+        let metadata = ModelMetadata {
+            name: "custom_model".to_string(),
+            description: "Custom test model".to_string(),
+            version: "1.5.0".to_string(),
+            producer: "Custom Producer".to_string(),
+            onnx_version: "1.16.0".to_string(),
+            domain: "custom.domain".to_string(),
+        };
+
+        let graph = Graph::create_simple_linear();
+        let model = Model::with_metadata(metadata, graph);
+
+        let temp_file = NamedTempFile::new().unwrap();
+        let file_path = temp_file.path();
+
+        model.to_file(file_path).unwrap();
+        let loaded_model = Model::from_file(file_path).unwrap();
+
+        assert_eq!(loaded_model.name(), "custom_model");
+        assert_eq!(loaded_model.description(), "Custom test model");
+        assert_eq!(loaded_model.version(), "1.5.0");
+    }
+
+    #[test]
+    fn test_model_to_file_error() {
+        let model = Model::create_simple_linear();
+        
+        // Try to save to an invalid path (directory doesn't exist)
+        let result = model.to_file("/nonexistent/directory/model.json");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Failed to write model file"));
     }
 
     #[test]
@@ -384,11 +518,38 @@ mod tests {
         let summary = model.summary();
 
         assert!(summary.contains("Model: simple_linear"));
+        assert!(summary.contains("Version: 1.0"));
+        assert!(summary.contains("Producer: RunNX"));
+        assert!(summary.contains("ONNX Version: 1.9.0"));
         assert!(summary.contains("Inputs:"));
         assert!(summary.contains("Outputs:"));
         assert!(summary.contains("Graph:"));
         assert!(summary.contains("MatMul: 1"));
         assert!(summary.contains("Add: 1"));
+        assert!(summary.contains("Operations:"));
+    }
+
+    #[test]
+    fn test_model_summary_with_custom_metadata() {
+        let metadata = ModelMetadata {
+            name: "custom_model".to_string(),
+            description: "A custom model for testing".to_string(),
+            version: "2.1.0".to_string(),
+            producer: "Test Suite".to_string(),
+            onnx_version: "1.15.0".to_string(),
+            domain: "test.models".to_string(),
+        };
+
+        let graph = Graph::create_simple_linear();
+        let model = Model::with_metadata(metadata, graph);
+        let summary = model.summary();
+
+        assert!(summary.contains("Model: custom_model"));
+        assert!(summary.contains("Version: 2.1.0"));
+        assert!(summary.contains("Description: A custom model for testing"));
+        assert!(summary.contains("Producer: Test Suite"));
+        assert!(summary.contains("ONNX Version: 1.15.0"));
+        assert!(summary.contains("Domain: test.models"));
     }
 
     #[test]
@@ -419,13 +580,39 @@ mod tests {
         assert!(outputs.contains_key("output"));
     }
 
+    #[tokio::test]
+    #[cfg(feature = "async")]
+    async fn test_model_run_async_error() {
+        let model = Model::create_simple_linear();
+        let inputs = HashMap::new(); // Missing required input
+
+        let result = model.run_async(&inputs).await;
+        assert!(result.is_err());
+    }
+
     #[test]
     fn test_invalid_model_file() {
         let temp_file = NamedTempFile::new().unwrap();
         let file_path = temp_file.path();
 
         // Write invalid JSON
-        std::fs::write(file_path, "invalid json").unwrap();
+        fs::write(file_path, "invalid json").unwrap();
+
+        let result = Model::from_file(file_path);
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("JSON error") || 
+                error_msg.contains("parse"));
+    }
+
+    #[test]
+    fn test_model_file_with_invalid_model() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let file_path = temp_file.path();
+
+        // Write valid JSON but invalid model (missing required fields)
+        let invalid_model = r#"{"metadata": {"name": ""}, "graph": {"nodes": []}}"#;
+        fs::write(file_path, invalid_model).unwrap();
 
         let result = Model::from_file(file_path);
         assert!(result.is_err());
@@ -435,5 +622,68 @@ mod tests {
     fn test_nonexistent_model_file() {
         let result = Model::from_file("/nonexistent/path/model.json");
         assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("Failed to read model file") ||
+                error_msg.contains("No such file"));
+    }
+
+    #[test]
+    fn test_model_clone_functionality() {
+        // Test that models can be used in ways that require cloning
+        let model = Model::create_simple_linear();
+        let model_copy = model.clone();
+
+        assert_eq!(model.name(), model_copy.name());
+        assert_eq!(model.input_names(), model_copy.input_names());
+        assert_eq!(model.output_names(), model_copy.output_names());
+        
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "input".to_string(),
+            Tensor::from_shape_vec(&[1, 3], vec![1.0, 2.0, 3.0]).unwrap(),
+        );
+
+        // Both models should produce the same output
+        let outputs1 = model.run(&inputs).unwrap();
+        let outputs2 = model_copy.run(&inputs).unwrap();
+        
+        assert_eq!(outputs1.len(), outputs2.len());
+        for (key, tensor1) in &outputs1 {
+            let tensor2 = outputs2.get(key).unwrap();
+            assert_eq!(tensor1.shape(), tensor2.shape());
+        }
+    }
+
+    #[test]
+    fn test_model_serialization_round_trip_preserves_functionality() {
+        let model = Model::create_simple_linear();
+        
+        // Test original model
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "input".to_string(),
+            Tensor::from_shape_vec(&[1, 3], vec![1.0, 2.0, 3.0]).unwrap(),
+        );
+        let original_outputs = model.run(&inputs).unwrap();
+        
+        // Serialize and deserialize
+        let temp_file = NamedTempFile::new().unwrap();
+        model.to_file(temp_file.path()).unwrap();
+        let loaded_model = Model::from_file(temp_file.path()).unwrap();
+        
+        // Test loaded model produces same results
+        let loaded_outputs = loaded_model.run(&inputs).unwrap();
+        
+        assert_eq!(original_outputs.len(), loaded_outputs.len());
+        for (key, original_tensor) in &original_outputs {
+            let loaded_tensor = loaded_outputs.get(key).unwrap();
+            assert_eq!(original_tensor.shape(), loaded_tensor.shape());
+            
+            let original_data = original_tensor.data();
+            let loaded_data = loaded_tensor.data();
+            for (orig, loaded) in original_data.iter().zip(loaded_data.iter()) {
+                assert!((orig - loaded).abs() < 1e-6);
+            }
+        }
     }
 }

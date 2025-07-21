@@ -128,4 +128,84 @@ mod tests {
         assert!(error_string.contains("Invalid dimensions"));
         assert!(error_string.contains("Invalid tensor shape"));
     }
+
+    #[test]
+    fn test_all_error_constructors() {
+        // Test shape mismatch
+        let err = OnnxError::shape_mismatch(&[1, 2, 3], &[3, 2, 1]);
+        assert!(matches!(err, OnnxError::ShapeMismatch { .. }));
+        assert!(err.to_string().contains("[1, 2, 3]"));
+        assert!(err.to_string().contains("[3, 2, 1]"));
+
+        // Test invalid dimensions
+        let err = OnnxError::invalid_dimensions("dimension must be positive");
+        assert!(matches!(err, OnnxError::InvalidDimensions { .. }));
+        assert!(err.to_string().contains("dimension must be positive"));
+
+        // Test unsupported operation
+        let err = OnnxError::unsupported_operation("Conv3D");
+        assert!(matches!(err, OnnxError::UnsupportedOperation { .. }));
+        assert!(err.to_string().contains("Conv3D"));
+
+        // Test model load error
+        let err = OnnxError::model_load_error("file not found");
+        assert!(matches!(err, OnnxError::ModelLoadError { .. }));
+        assert!(err.to_string().contains("file not found"));
+
+        // Test graph validation error
+        let err = OnnxError::graph_validation_error("circular dependency detected");
+        assert!(matches!(err, OnnxError::GraphValidationError { .. }));
+        assert!(err.to_string().contains("circular dependency detected"));
+
+        // Test runtime error
+        let err = OnnxError::runtime_error("out of memory");
+        assert!(matches!(err, OnnxError::RuntimeError { .. }));
+        assert!(err.to_string().contains("out of memory"));
+
+        // Test other error
+        let err = OnnxError::other("unexpected error");
+        assert!(matches!(err, OnnxError::Other { .. }));
+        assert!(err.to_string().contains("unexpected error"));
+    }
+
+    #[test]
+    fn test_error_from_conversions() {
+        // Test IO error conversion
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let onnx_err: OnnxError = io_err.into();
+        assert!(matches!(onnx_err, OnnxError::IoError(_)));
+        assert!(onnx_err.to_string().contains("file not found"));
+
+        // Test JSON error conversion
+        let json_err = serde_json::from_str::<serde_json::Value>("invalid json").unwrap_err();
+        let onnx_err: OnnxError = json_err.into();
+        assert!(matches!(onnx_err, OnnxError::JsonError(_)));
+    }
+
+    #[test]
+    fn test_error_debug_formatting() {
+        let err = OnnxError::shape_mismatch(&[2, 3], &[4, 5]);
+        let debug_str = format!("{err:?}");
+        assert!(debug_str.contains("ShapeMismatch"));
+        assert!(debug_str.contains("[2, 3]"));
+        assert!(debug_str.contains("[4, 5]"));
+    }
+
+    #[test]
+    fn test_result_type_alias() {
+        let success: Result<i32> = Ok(42);
+        assert_eq!(success.unwrap(), 42);
+
+        let failure: Result<i32> = Err(OnnxError::other("test error"));
+        assert!(failure.is_err());
+    }
+
+    #[test]
+    fn test_string_conversions() {
+        let err = OnnxError::invalid_dimensions(String::from("test string"));
+        assert!(err.to_string().contains("test string"));
+
+        let err = OnnxError::other("test str");
+        assert!(err.to_string().contains("test str"));
+    }
 }

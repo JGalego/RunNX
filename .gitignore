@@ -30,3 +30,4 @@ simple_model.json
 # Coverage
 /coverage/
 tarpaulin-report.html
+lcov.info

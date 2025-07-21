@@ -342,15 +342,45 @@ mod tests {
     }
 
     #[test]
+    fn test_runtime_with_custom_config() {
+        let runtime = Runtime::with_debug();
+        
+        assert!(runtime.debug);
+        assert_eq!(runtime.max_concurrency, 1);
+    }
+
+    #[test]
     fn test_execution_context() {
         let mut context = ExecutionContext::new();
 
         let tensor = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
-        context.add_tensor("test".to_string(), tensor);
+        context.add_tensor("test".to_string(), tensor.clone());
 
         assert!(context.get_tensor("test").is_some());
         assert!(context.get_tensor("missing").is_none());
         assert_eq!(context.tensor_names(), vec!["test"]);
+
+        // Test tensor retrieval
+        let retrieved = context.get_tensor("test").unwrap();
+        assert_eq!(retrieved.shape(), tensor.shape());
+    }
+
+    #[test]
+    fn test_execution_context_multiple_tensors() {
+        let mut context = ExecutionContext::new();
+
+        let tensor1 = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
+        let tensor2 = Tensor::from_array(Array1::from_vec(vec![4.0, 5.0, 6.0]));
+        
+        context.add_tensor("tensor1".to_string(), tensor1);
+        context.add_tensor("tensor2".to_string(), tensor2);
+
+        let mut names = context.tensor_names();
+        names.sort(); // Sort for deterministic comparison
+        assert_eq!(names, vec!["tensor1", "tensor2"]);
+
+        assert!(context.get_tensor("tensor1").is_some());
+        assert!(context.get_tensor("tensor2").is_some());
     }
 
     #[test]
@@ -387,6 +417,21 @@ mod tests {
     }
 
     #[test]
+    fn test_runtime_non_debug_execution() {
+        let runtime = Runtime::new(); // Non-debug mode
+        let graph = Graph::create_simple_linear();
+
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "input".to_string(),
+            Tensor::from_shape_vec(&[1, 3], vec![1.0, 2.0, 3.0]).unwrap(),
+        );
+
+        let outputs = runtime.execute(&graph, inputs).unwrap();
+        assert!(outputs.contains_key("output"));
+    }
+
+    #[test]
     fn test_missing_input() {
         let runtime = Runtime::new();
         let graph = Graph::create_simple_linear();
@@ -395,6 +440,113 @@ mod tests {
 
         let result = runtime.execute(&graph, inputs);
         assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Missing required input"));
+    }
+
+    #[test]
+    fn test_input_shape_validation_error() {
+        let runtime = Runtime::new();
+        let graph = Graph::create_simple_linear();
+
+        let mut inputs = HashMap::new();
+        // Wrong shape - should be [1, 3] but providing [2, 2]
+        inputs.insert(
+            "input".to_string(),
+            Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap(),
+        );
+
+        let result = runtime.execute(&graph, inputs);
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("Shape mismatch") || 
+                error_msg.contains("shape"));
+    }
+
+    #[test]
+    fn test_unknown_tensor_reference_error() {
+        let runtime = Runtime::new();
+        
+        // Create a graph with an invalid node that references a non-existent tensor
+        let mut graph = Graph::new("invalid_graph".to_string());
+        let node = crate::graph::Node::new(
+            "invalid_node".to_string(),
+            "Add".to_string(),
+            vec!["nonexistent_tensor".to_string(), "another_nonexistent".to_string()],
+            vec!["output".to_string()],
+        );
+        graph.add_node(node);
+        
+        // Add a fake input spec to pass validation
+        let input_spec = crate::graph::TensorSpec {
+            name: "input".to_string(),
+            dtype: "float32".to_string(),
+            shape: vec![Some(1), Some(3)],
+        };
+        graph.add_input(input_spec);
+        
+        let mut inputs = HashMap::new();
+        inputs.insert("input".to_string(), Tensor::zeros(&[1, 3]));
+
+        let result = runtime.execute(&graph, inputs);
+        assert!(result.is_err());
+        // The error should mention the unknown tensor
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("unknown tensor") ||
+                error_msg.contains("nonexistent"));
+    }
+
+    #[test]
+    fn test_execution_with_intermediate_tensors() {
+        let runtime = Runtime::with_debug();
+        
+        // Create a more complex graph with intermediate tensors
+        let mut graph = Graph::new("complex_graph".to_string());
+        
+        // Add input spec
+        let input_spec = crate::graph::TensorSpec {
+            name: "input".to_string(),
+            dtype: "float32".to_string(),
+            shape: vec![Some(1), Some(2)],
+        };
+        graph.add_input(input_spec);
+        
+        // Add output spec
+        let output_spec = crate::graph::TensorSpec {
+            name: "output".to_string(),
+            dtype: "float32".to_string(),
+            shape: vec![Some(1), Some(2)],
+        };
+        graph.add_output(output_spec);
+        
+        // First node: ReLU
+        let relu_node = crate::graph::Node::new(
+            "relu".to_string(),
+            "Relu".to_string(),
+            vec!["input".to_string()],
+            vec!["intermediate".to_string()],
+        );
+        graph.add_node(relu_node);
+        
+        // Second node: Add (add intermediate to itself)
+        let add_node = crate::graph::Node::new(
+            "add".to_string(),
+            "Add".to_string(),
+            vec!["intermediate".to_string(), "intermediate".to_string()],
+            vec!["output".to_string()],
+        );
+        graph.add_node(add_node);
+        
+        let mut inputs = HashMap::new();
+        inputs.insert("input".to_string(), Tensor::from_shape_vec(&[1, 2], vec![-1.0, 2.0]).unwrap());
+
+        let outputs = runtime.execute(&graph, inputs).unwrap();
+        assert!(outputs.contains_key("output"));
+        
+        // Expected: ReLU(-1, 2) = (0, 2), then (0, 2) + (0, 2) = (0, 4)
+        let output = outputs.get("output").unwrap();
+        let data = output.data();
+        assert!((data[[0, 0]] - 0.0).abs() < 1e-6);
+        assert!((data[[0, 1]] - 4.0).abs() < 1e-6);
     }
 
     #[tokio::test]
@@ -417,6 +569,18 @@ mod tests {
         assert!(outputs.contains_key("output"));
     }
 
+    #[tokio::test]
+    #[cfg(feature = "async")]
+    async fn test_async_execution_error() {
+        let runtime = Runtime::new();
+        let graph = Graph::create_simple_linear();
+
+        let inputs = HashMap::new(); // Missing required input
+
+        let result = runtime.execute_async(graph, inputs).await;
+        assert!(result.is_err());
+    }
+
     #[test]
     fn test_execution_stats() {
         let stats = ExecutionStats {
@@ -428,5 +592,77 @@ mod tests {
 
         assert_eq!(stats.avg_op_time(), 20.0);
         assert_eq!(stats.memory_usage_mb(), 1.0);
+    }
+
+    #[test]
+    fn test_execution_stats_zero_ops() {
+        let stats = ExecutionStats {
+            total_time_ms: 100.0,
+            ops_executed: 0,
+            memory_usage_bytes: 0,
+            ..Default::default()
+        };
+
+        assert_eq!(stats.avg_op_time(), 0.0);
+        assert_eq!(stats.memory_usage_mb(), 0.0);
+    }
+
+    #[test]
+    fn test_execution_stats_default() {
+        let stats = ExecutionStats::default();
+        
+        assert_eq!(stats.total_time_ms, 0.0);
+        assert_eq!(stats.ops_executed, 0);
+        assert_eq!(stats.memory_usage_bytes, 0);
+        assert_eq!(stats.avg_op_time(), 0.0);
+        assert_eq!(stats.memory_usage_mb(), 0.0);
+    }
+
+    #[test]
+    fn test_runtime_builder_pattern() {
+        let runtime = Runtime::new();
+        
+        assert!(!runtime.debug);
+        
+        let runtime2 = Runtime::with_debug();
+        
+        assert!(runtime2.debug);
+    }
+
+    #[test]
+    fn test_large_batch_execution() {
+        let runtime = Runtime::new();
+        let graph = Graph::create_simple_linear();
+
+        // Test with a larger input that matches the expected shape
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "input".to_string(),
+            Tensor::from_shape_vec(&[1, 3], vec![1.0, 2.0, 3.0]).unwrap(),
+        );
+
+        let outputs = runtime.execute(&graph, inputs).unwrap();
+        assert!(outputs.contains_key("output"));
+        
+        let output = outputs.get("output").unwrap();
+        assert_eq!(output.shape(), &[1, 2]); // Batch size 1, output dim 2
+    }
+
+    #[test]
+    fn test_execution_context_tensor_overwrite() {
+        let mut context = ExecutionContext::new();
+
+        let tensor1 = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
+        let tensor2 = Tensor::from_array(Array1::from_vec(vec![4.0, 5.0, 6.0]));
+        
+        context.add_tensor("test".to_string(), tensor1);
+        context.add_tensor("test".to_string(), tensor2); // Overwrite
+
+        let retrieved = context.get_tensor("test").unwrap();
+        let data = retrieved.data();
+        // Should have the second tensor's data
+        assert!((data[0] - 4.0).abs() < 1e-6);
+        assert!((data[1] - 5.0).abs() < 1e-6);
+        assert!((data[2] - 6.0).abs() < 1e-6);
     }
 }
