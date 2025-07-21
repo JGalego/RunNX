@@ -142,13 +142,13 @@ impl Runtime {
     /// Execute a graph with async support (feature gated)
     #[cfg(feature = "async")]
     pub async fn execute_async(
-        &self,
-        graph: &Graph,
+        self,
+        graph: Graph,
         inputs: HashMap<String, Tensor>,
     ) -> Result<HashMap<String, Tensor>> {
         // For now, just delegate to sync execution
         // In a full implementation, this would support parallel execution
-        tokio::task::spawn_blocking(move || self.execute(graph, inputs))
+        tokio::task::spawn_blocking(move || self.execute(&graph, inputs))
             .await
             .map_err(|e| OnnxError::runtime_error(e.to_string()))?
     }
@@ -329,7 +329,7 @@ impl ExecutionStats {
 mod tests {
     use super::*;
     use crate::{Graph, Tensor};
-    use ndarray::Array1;
+    use ndarray::{Array1, Array2};
 
     #[test]
     fn test_runtime_creation() {
@@ -399,7 +399,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg(feature = "async")]
     async fn test_async_execution() {
         let runtime = Runtime::new();
@@ -415,7 +415,7 @@ mod tests {
             ),
         );
 
-        let outputs = runtime.execute_async(&graph, inputs).await.unwrap();
+        let outputs = runtime.execute_async(graph, inputs).await.unwrap();
         assert!(outputs.contains_key("output"));
     }
 

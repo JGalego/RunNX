@@ -166,14 +166,18 @@ fn test_activation_functions_edge_cases() {
     assert_eq!(sigmoid_data[6], 1.0); // sigmoid(infinity) = 1
 }
 
-#[test]
+#[tokio::test]
 #[cfg(feature = "async")]
 async fn test_async_inference() {
     let model = Model::create_simple_linear();
     let mut inputs = HashMap::new();
     inputs.insert(
         "input".to_string(),
-        Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0])),
+        Tensor::from_array(
+            Array2::from_shape_vec((1, 3), vec![1.0, 2.0, 3.0])
+                .unwrap()
+                .into_dyn(),
+        ),
     );
 
     let outputs = model.run_async(&inputs).await.unwrap();

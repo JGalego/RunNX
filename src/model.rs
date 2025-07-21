@@ -236,7 +236,9 @@ impl Model {
         inputs: &HashMap<String, Tensor>,
     ) -> Result<HashMap<String, Tensor>> {
         let runtime = Runtime::new();
-        runtime.execute_async(&self.graph, inputs.clone()).await
+        runtime
+            .execute_async(self.graph.clone(), inputs.clone())
+            .await
     }
 
     /// Create a simple linear model for testing
@@ -306,7 +308,7 @@ impl std::fmt::Display for Model {
 mod tests {
     use super::*;
     use crate::Graph;
-
+    use ndarray::Array2;
     use tempfile::NamedTempFile;
 
     #[test]
@@ -396,7 +398,7 @@ mod tests {
         assert_eq!(display_string, summary);
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg(feature = "async")]
     async fn test_model_run_async() {
         let model = Model::create_simple_linear();
