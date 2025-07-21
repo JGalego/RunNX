@@ -246,7 +246,7 @@ impl Tensor {
         let reshaped = self
             .data
             .view()
-            .into_shape(IxDyn(new_shape))
+            .to_shape(IxDyn(new_shape))
             .map_err(|e| OnnxError::invalid_dimensions(e.to_string()))?
             .to_owned();
 

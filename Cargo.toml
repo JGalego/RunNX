@@ -13,20 +13,20 @@ categories = ["science", "mathematics", "algorithms"]
 
 [dependencies]
 # Core dependencies
-ndarray = { version = "0.15", features = ["serde"] }
-thiserror = "1.0"
+ndarray = { version = "0.16", features = ["serde"] }
+thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 protobuf = "3.3"
 log = "0.4"
-env_logger = "0.10"
+env_logger = "0.11"
 
 # Optional features
 tokio = { version = "1.0", features = ["full"], optional = true }
 
 [dev-dependencies]
-env_logger = "0.10"
-criterion = { version = "0.5", features = ["html_reports"] }
+env_logger = "0.11"
+criterion = { version = "0.6", features = ["html_reports"] }
 tempfile = "3.8"
 tokio = { version = "1.0", features = ["macros", "rt"] }
 
