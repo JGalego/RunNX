@@ -210,10 +210,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Rust 1.74 # Updated to support clap dependency
+    - name: Install Rust 1.81 # Updated to support clap dependency
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: 1.74.0
+        toolchain: 1.81.0
 
     - name: Cache cargo registry
       uses: actions/cache@v4
