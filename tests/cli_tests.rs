@@ -3,11 +3,10 @@
 //! These tests verify the complete functionality of the CLI runner
 //! by testing command-line argument parsing, file I/O, and integration workflows.
 
-use runnx::{Model, Tensor};
-use std::collections::HashMap;
+use runnx::Model;
 use std::fs;
 use std::process::Command;
-use tempfile::{NamedTempFile, TempDir};
+use tempfile::NamedTempFile;
 
 /// Test CLI argument parsing and help functionality
 #[test]
@@ -215,7 +214,7 @@ fn test_cli_nonexistent_input() {
 /// Test CLI argument parsing edge cases
 #[test]
 fn test_cli_argument_parsing_edge_cases() {
-    let temp_model = create_temp_model_file();
+    let _temp_model = create_temp_model_file();
     
     // Test missing argument value
     let output = Command::new("cargo")

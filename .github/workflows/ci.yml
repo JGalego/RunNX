@@ -107,7 +107,7 @@ jobs:
         tool: cargo-llvm-cov
 
     - name: Generate code coverage
-      run: cargo llvm-cov --all-features --ignore-filename-regex "bin/" --workspace --lcov --output-path lcov.info
+      run: cargo llvm-cov --all-features --ignore-filename-regex "bin/" --workspace --lcov --output-path lcov.info --no-cfg-coverage
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
