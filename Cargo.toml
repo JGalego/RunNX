@@ -2,7 +2,7 @@
 name = "runnx"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.81"
 description = "A minimal, verifiable ONNX runtime implementation in Rust"
 authors = ["João Galego <jgalego1990@gmail.com>"]
 license = "MIT OR Apache-2.0"
