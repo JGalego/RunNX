@@ -23,9 +23,10 @@ jobs:
       uses: orhun/git-cliff-action@v4
       with:
         config: cliff.toml
-        args: --verbose --output CHANGELOG.md
+        args: --verbose
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        OUTPUT: CHANGELOG.md
 
     - name: Commit changelog
       run: |
