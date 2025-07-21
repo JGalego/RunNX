@@ -46,7 +46,7 @@ impl Default for ModelMetadata {
             name: "onnx-model".to_string(),
             version: "1.0".to_string(),
             description: "ONNX model".to_string(),
-            producer: "onnx-rs-min".to_string(),
+            producer: "RunNX".to_string(),
             onnx_version: "1.9.0".to_string(),
             domain: "".to_string(),
         }

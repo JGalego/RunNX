@@ -1,4 +1,4 @@
-//! # ONNX-RS-MIN: A Minimal ONNX Runtime in Rust
+//! # RunNX: A Minimal ONNX Runtime in Rust
 //!
 //! This crate provides a minimal, verifiable implementation of an ONNX runtime
 //! focused on educational purposes and simplicity while maintaining performance.
@@ -13,7 +13,7 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use onnx_rs_min::{Model, Tensor};
+//! use runnx::{Model, Tensor};
 //! use ndarray::Array2;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {

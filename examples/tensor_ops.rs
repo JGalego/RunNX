@@ -1,9 +1,9 @@
 //! Tensor operations example
 //!
 //! This example demonstrates various tensor operations available
-//! in the onnx-rs-min library.
+//! in the RunNX library.
 
-use onnx_rs_min::Tensor;
+use runnx::Tensor;
 use ndarray::{Array1, Array2, Array3};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

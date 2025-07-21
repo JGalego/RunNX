@@ -1,9 +1,9 @@
 //! Command-line ONNX model runner
 //!
 //! This binary provides a command-line interface for running ONNX models
-//! with the onnx-rs-min runtime.
+//! with the RunNX runtime.
 
-use onnx_rs_min::{Model, Tensor};
+use runnx::{Model, Tensor};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -23,7 +23,7 @@ impl Args {
         let args: Vec<String> = env::args().collect();
         
         if args.len() < 2 {
-            return Err("Usage: onnx-runner --model <model.json> [options]".to_string());
+            return Err("Usage: runnx-runner --model <model.json> [options]".to_string());
         }
 
         let mut model_path = None;
@@ -297,10 +297,10 @@ fn save_outputs(
 }
 
 fn print_help() {
-    println!("ONNX-RS-MIN Runner");
+    println!("RunNX Runner");
     println!();
     println!("USAGE:");
-    println!("    onnx-runner --model <MODEL> [OPTIONS]");
+    println!("    runnx-runner --model <MODEL> [OPTIONS]");
     println!();
     println!("OPTIONS:");
     println!("    -m, --model <MODEL>      Path to the ONNX model file (.json format)");
@@ -312,16 +312,16 @@ fn print_help() {
     println!();
     println!("EXAMPLES:");
     println!("    # Run model with default inputs and print outputs");
-    println!("    onnx-runner --model model.json");
+    println!("    runnx-runner --model model.json");
     println!();
     println!("    # Run with custom inputs from file");
-    println!("    onnx-runner --model model.json --input inputs.json");
+    println!("    runnx-runner --model model.json --input inputs.json");
     println!();
     println!("    # Save outputs to file");
-    println!("    onnx-runner --model model.json --output outputs.json");
+    println!("    runnx-runner --model model.json --output outputs.json");
     println!();
     println!("    # Show model summary only");
-    println!("    onnx-runner --model model.json --summary");
+    println!("    runnx-runner --model model.json --summary");
     println!();
     println!("INPUT FORMAT (JSON):");
     println!("    {{");

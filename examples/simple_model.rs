@@ -1,9 +1,9 @@
 //! Simple model example
 //!
 //! This example demonstrates how to create, save, and run a simple model
-//! using the onnx-rs-min library.
+//! using the RunNX library.
 
-use onnx_rs_min::{Model, Tensor};
+use runnx::{Model, Tensor};
 use ndarray::{Array1, Array2, Array};
 use std::collections::HashMap;
 

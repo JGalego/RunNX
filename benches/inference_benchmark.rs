@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use onnx_rs_min::*;
+use runnx::*;
 
 fn bench_tensor_operations(c: &mut Criterion) {
     // Simple tensor add benchmark

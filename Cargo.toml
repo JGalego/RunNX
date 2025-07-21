@@ -1,11 +1,11 @@
 [package]
-name = "onnx-rs-min"
+name = "runnx"
 version = "0.1.0"
 edition = "2021"
 description = "A minimal, verifiable ONNX runtime implementation in Rust"
 authors = ["Your Name <your.email@example.com>"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/onnx-rs-min"
+repository = "https://github.com/yourusername/runnx"
 readme = "README.md"
 keywords = ["onnx", "machine-learning", "neural-network", "runtime", "inference"]
 categories = ["science", "mathematics", "algorithms"]
@@ -37,11 +37,11 @@ name = "inference_benchmark"
 harness = false
 
 [lib]
-name = "onnx_rs_min"
+name = "runnx"
 path = "src/lib.rs"
 
 [[bin]]
-name = "onnx-runner"
+name = "runnx-runner"
 path = "src/bin/runner.rs"
 
 [[example]]

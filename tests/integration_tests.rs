@@ -3,7 +3,7 @@
 //! These tests verify the complete functionality of the ONNX runtime
 //! by testing end-to-end workflows.
 
-use onnx_rs_min::{Model, Tensor, Graph};
+use runnx::{Model, Tensor, Graph};
 use std::collections::HashMap;
 use ndarray::{Array1, Array, Array2};
 use tempfile::NamedTempFile;

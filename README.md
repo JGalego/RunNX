@@ -1,9 +1,9 @@
-# ONNX-RS-MIN
+# RunNX
 
 A minimal, verifiable ONNX runtime implementation in Rust.
 
-[![Crates.io](https://img.shields.io/crates/v/onnx-rs-min.svg)](https://crates.io/crates/onnx-rs-min)
-[![Documentation](https://docs.rs/onnx-rs-min/badge.svg)](https://docs.rs/onnx-rs-min)
+[![Crates.io](https://img.shields.io/crates/v/runnx.svg)](https://crates.io/crates/runnx)
+[![Documentation](https://docs.rs/runnx/badge.svg)](https://docs.rs/runnx)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 
 ## Overview
@@ -33,13 +33,13 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-onnx-rs-min = "0.1.0"
+runnx = "0.1.0"
 ```
 
 ### Basic Usage
 
 ```rust
-use onnx_rs_min::{Model, Tensor};
+use runnx::{Model, Tensor};
 
 // Load a model
 let model = Model::from_file("model.onnx")?;
@@ -59,10 +59,10 @@ println!("Result: {:?}", result.data());
 
 ```bash
 # Run inference on a model
-cargo run --bin onnx-runner -- --model model.onnx --input input.json
+cargo run --bin runnx-runner -- --model model.onnx --input input.json
 
 # Run with async support
-cargo run --features async --bin onnx-runner -- --model model.onnx --input input.json
+cargo run --features async --bin runnx-runner -- --model model.onnx --input input.json
 ```
 
 ## Architecture
@@ -95,7 +95,7 @@ The runtime is organized into several key components:
 ### Simple Linear Model
 
 ```rust
-use onnx_rs_min::{Model, Tensor};
+use runnx::{Model, Tensor};
 use ndarray::Array2;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -122,7 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Model Loading and Inference
 
 ```rust
-use onnx_rs_min::{Model, Tensor};
+use runnx::{Model, Tensor};
 use std::collections::HashMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
