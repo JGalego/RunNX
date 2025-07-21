@@ -306,7 +306,7 @@ impl std::fmt::Display for Model {
 mod tests {
     use super::*;
     use crate::Graph;
-    
+
     use tempfile::NamedTempFile;
 
     #[test]
