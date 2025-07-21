@@ -7,7 +7,11 @@ A minimal, verifiable ONNX runtime implementation in Rust.
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/jgalego/runnx/branch/main/graph/badge.svg)](https://codecov.io/gh/jgalego/runnx)
 
+![RunNX](runnx.jpg)
+
 ## Overview
+
+> Fast, fearless, and fully verifiable ONNX in Rust.
 
 This project provides a minimal, educational ONNX runtime implementation focused on:
 - **Simplicity**: Easy to understand and modify
@@ -17,7 +21,7 @@ This project provides a minimal, educational ONNX runtime implementation focused
 
 ## Features
 
-- ✅ Basic tensor operations (Add, Mul, MatMul, Conv, etc.)
+- ✅ Basic tensor operations (`Add`, `Mul`, `MatMul`, `Conv`, &c.)
 - ✅ Model loading and validation
 - ✅ Inference execution
 - ✅ Error handling and logging
@@ -80,16 +84,16 @@ The runtime is organized into several key components:
 
 ### Supported Operators
 
-| Operator | Status | Notes |
-|----------|--------|-------|
-| Add      | ✅     | Element-wise addition |
-| Mul      | ✅     | Element-wise multiplication |
-| MatMul   | ✅     | Matrix multiplication |
-| Conv     | ✅     | 2D Convolution |
-| Relu     | ✅     | Rectified Linear Unit |
-| Sigmoid  | ✅     | Sigmoid activation |
-| Reshape  | ✅     | Tensor reshaping |
-| Transpose| ✅     | Tensor transposition |
+| Operator      | Status   | Notes                       |
+| ------------- | -------- | --------------------------- |
+| `Add`         | ✅      | Element-wise addition        |
+| `Mul`         | ✅      | Element-wise multiplication  |
+| `MatMul`      | ✅      | Matrix multiplication        |
+| `Conv`        | ✅      | 2D Convolution               |
+| `Relu`        | ✅      | Rectified Linear Unit        |
+| `Sigmoid`     | ✅      | Sigmoid activation           |
+| `Reshape`     | ✅      | Tensor reshaping             |
+| `Transpose`   | ✅      | Tensor transposition         |
 
 ## Examples
 
@@ -204,17 +208,16 @@ cargo doc --document-private-items
 
 ## License
 
-This project is licensed under either of
+This project is licensed under
 
 * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
 * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
 
-at your option.
 
 ## Acknowledgments
 
 - [ONNX](https://onnx.ai/) - Open Neural Network Exchange format
-- [ndarray](https://github.com/rust-ndarray/ndarray) - Rust's ndarray library
+- [ndarray](https://github.com/rust-ndarray/ndarray) - Rust's `ndarray` library
 - [Candle](https://github.com/huggingface/candle) - Inspiration for some design patterns
 
 ## Roadmap
