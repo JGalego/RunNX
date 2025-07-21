@@ -18,17 +18,29 @@ jobs:
         fetch-depth: 0
 
     - name: Generate changelog
-      uses: orhun/git-cliff-action@v2
+      uses: orhun/git-cliff-action@v4
       with:
         config: cliff.toml
-        args: --verbose
+        args: --verbose --output CHANGELOG.md
       env:
-        OUTPUT: CHANGELOG.md
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Commit changelog
       run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add CHANGELOG.md
-        git diff --staged --quiet || git commit -m "docs: update changelog"
-        git push
+        git config user.name 'github-actions[bot]'
+        git config user.email 'github-actions[bot]@users.noreply.github.com'
+        
+        # Check if CHANGELOG.md was created and has changes
+        if [[ -f CHANGELOG.md ]]; then
+          git add CHANGELOG.md
+          # Only commit if there are staged changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "docs: update changelog"
+            git push
+          fi
+        else
+          echo "CHANGELOG.md was not generated"
+          exit 1
+        fi 
