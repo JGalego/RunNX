@@ -257,18 +257,30 @@ mod tests {
     fn test_operator_type_from_str() {
         assert_eq!("Add".parse::<OperatorType>().unwrap(), OperatorType::Add);
         assert_eq!("Mul".parse::<OperatorType>().unwrap(), OperatorType::Mul);
-        assert_eq!("MatMul".parse::<OperatorType>().unwrap(), OperatorType::MatMul);
+        assert_eq!(
+            "MatMul".parse::<OperatorType>().unwrap(),
+            OperatorType::MatMul
+        );
         assert_eq!("Conv".parse::<OperatorType>().unwrap(), OperatorType::Conv);
         assert_eq!("Relu".parse::<OperatorType>().unwrap(), OperatorType::Relu);
-        assert_eq!("Sigmoid".parse::<OperatorType>().unwrap(), OperatorType::Sigmoid);
-        assert_eq!("Reshape".parse::<OperatorType>().unwrap(), OperatorType::Reshape);
-        assert_eq!("Transpose".parse::<OperatorType>().unwrap(), OperatorType::Transpose);
-        
+        assert_eq!(
+            "Sigmoid".parse::<OperatorType>().unwrap(),
+            OperatorType::Sigmoid
+        );
+        assert_eq!(
+            "Reshape".parse::<OperatorType>().unwrap(),
+            OperatorType::Reshape
+        );
+        assert_eq!(
+            "Transpose".parse::<OperatorType>().unwrap(),
+            OperatorType::Transpose
+        );
+
         // Test unknown operator
         let result = "Unknown".parse::<OperatorType>();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Unknown"));
-        
+
         // Test case sensitivity
         assert!("add".parse::<OperatorType>().is_err());
         assert!("ADD".parse::<OperatorType>().is_err());
@@ -285,7 +297,7 @@ mod tests {
         let op1 = OperatorType::Add;
         let op2 = op1.clone();
         assert_eq!(op1, op2);
-        
+
         assert_ne!(OperatorType::Add, OperatorType::Mul);
     }
 
@@ -403,7 +415,10 @@ mod tests {
 
         let result = execute_operator(&OperatorType::Conv, &inputs, &attrs);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("at least 2 inputs"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("at least 2 inputs"));
     }
 
     #[test]
@@ -538,7 +553,7 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("exactly 1 input"));
     }
 
-    #[test] 
+    #[test]
     fn test_execute_operator_with_attributes() {
         // Test that attributes parameter is accepted (though currently unused)
         let a = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
@@ -554,7 +569,9 @@ mod tests {
     fn test_all_operator_types_execute() {
         // Ensure all operator types can be executed without panicking
         let tensor_1d = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
-        let tensor_2d = Tensor::from_array(Array2::from_shape_vec((2, 3), vec![1., 2., 3., 4., 5., 6.]).unwrap());
+        let tensor_2d = Tensor::from_array(
+            Array2::from_shape_vec((2, 3), vec![1., 2., 3., 4., 5., 6.]).unwrap(),
+        );
         let tensor_4d = Tensor::zeros(&[1, 1, 2, 2]);
         let shape_tensor = Tensor::from_array(Array1::from_vec(vec![3.0, 2.0]));
         let attrs = HashMap::new();
@@ -565,10 +582,35 @@ mod tests {
         assert!(execute_operator(&OperatorType::Transpose, &[tensor_2d.clone()], &attrs).is_ok());
 
         // Test dual-input operators
-        assert!(execute_operator(&OperatorType::Add, &[tensor_1d.clone(), tensor_1d.clone()], &attrs).is_ok());
-        assert!(execute_operator(&OperatorType::Mul, &[tensor_1d.clone(), tensor_1d.clone()], &attrs).is_ok());
-        assert!(execute_operator(&OperatorType::MatMul, &[tensor_2d.clone(), tensor_2d.transpose().unwrap()], &attrs).is_ok());
-        assert!(execute_operator(&OperatorType::Reshape, &[tensor_2d.clone(), shape_tensor], &attrs).is_ok());
-        assert!(execute_operator(&OperatorType::Conv, &[tensor_4d.clone(), tensor_4d.clone()], &attrs).is_ok());
+        assert!(execute_operator(
+            &OperatorType::Add,
+            &[tensor_1d.clone(), tensor_1d.clone()],
+            &attrs
+        )
+        .is_ok());
+        assert!(execute_operator(
+            &OperatorType::Mul,
+            &[tensor_1d.clone(), tensor_1d.clone()],
+            &attrs
+        )
+        .is_ok());
+        assert!(execute_operator(
+            &OperatorType::MatMul,
+            &[tensor_2d.clone(), tensor_2d.transpose().unwrap()],
+            &attrs
+        )
+        .is_ok());
+        assert!(execute_operator(
+            &OperatorType::Reshape,
+            &[tensor_2d.clone(), shape_tensor],
+            &attrs
+        )
+        .is_ok());
+        assert!(execute_operator(
+            &OperatorType::Conv,
+            &[tensor_4d.clone(), tensor_4d.clone()],
+            &attrs
+        )
+        .is_ok());
     }
 }

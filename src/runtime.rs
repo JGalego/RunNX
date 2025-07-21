@@ -329,7 +329,9 @@ impl ExecutionStats {
 mod tests {
     use super::*;
     use crate::{Graph, Tensor};
-    use ndarray::{Array1, Array2};
+    use ndarray::Array1;
+    #[cfg(feature = "async")]
+    use ndarray::Array2;
 
     #[test]
     fn test_runtime_creation() {
@@ -344,7 +346,7 @@ mod tests {
     #[test]
     fn test_runtime_with_custom_config() {
         let runtime = Runtime::with_debug();
-        
+
         assert!(runtime.debug);
         assert_eq!(runtime.max_concurrency, 1);
     }
@@ -371,7 +373,7 @@ mod tests {
 
         let tensor1 = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
         let tensor2 = Tensor::from_array(Array1::from_vec(vec![4.0, 5.0, 6.0]));
-        
+
         context.add_tensor("tensor1".to_string(), tensor1);
         context.add_tensor("tensor2".to_string(), tensor2);
 
@@ -440,7 +442,10 @@ mod tests {
 
         let result = runtime.execute(&graph, inputs);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing required input"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required input"));
     }
 
     #[test]
@@ -458,24 +463,26 @@ mod tests {
         let result = runtime.execute(&graph, inputs);
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("Shape mismatch") || 
-                error_msg.contains("shape"));
+        assert!(error_msg.contains("Shape mismatch") || error_msg.contains("shape"));
     }
 
     #[test]
     fn test_unknown_tensor_reference_error() {
         let runtime = Runtime::new();
-        
+
         // Create a graph with an invalid node that references a non-existent tensor
         let mut graph = Graph::new("invalid_graph".to_string());
         let node = crate::graph::Node::new(
             "invalid_node".to_string(),
             "Add".to_string(),
-            vec!["nonexistent_tensor".to_string(), "another_nonexistent".to_string()],
+            vec![
+                "nonexistent_tensor".to_string(),
+                "another_nonexistent".to_string(),
+            ],
             vec!["output".to_string()],
         );
         graph.add_node(node);
-        
+
         // Add a fake input spec to pass validation
         let input_spec = crate::graph::TensorSpec {
             name: "input".to_string(),
@@ -483,7 +490,7 @@ mod tests {
             shape: vec![Some(1), Some(3)],
         };
         graph.add_input(input_spec);
-        
+
         let mut inputs = HashMap::new();
         inputs.insert("input".to_string(), Tensor::zeros(&[1, 3]));
 
@@ -491,17 +498,16 @@ mod tests {
         assert!(result.is_err());
         // The error should mention the unknown tensor
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("unknown tensor") ||
-                error_msg.contains("nonexistent"));
+        assert!(error_msg.contains("unknown tensor") || error_msg.contains("nonexistent"));
     }
 
     #[test]
     fn test_execution_with_intermediate_tensors() {
         let runtime = Runtime::with_debug();
-        
+
         // Create a more complex graph with intermediate tensors
         let mut graph = Graph::new("complex_graph".to_string());
-        
+
         // Add input spec
         let input_spec = crate::graph::TensorSpec {
             name: "input".to_string(),
@@ -509,7 +515,7 @@ mod tests {
             shape: vec![Some(1), Some(2)],
         };
         graph.add_input(input_spec);
-        
+
         // Add output spec
         let output_spec = crate::graph::TensorSpec {
             name: "output".to_string(),
@@ -517,7 +523,7 @@ mod tests {
             shape: vec![Some(1), Some(2)],
         };
         graph.add_output(output_spec);
-        
+
         // First node: ReLU
         let relu_node = crate::graph::Node::new(
             "relu".to_string(),
@@ -526,7 +532,7 @@ mod tests {
             vec!["intermediate".to_string()],
         );
         graph.add_node(relu_node);
-        
+
         // Second node: Add (add intermediate to itself)
         let add_node = crate::graph::Node::new(
             "add".to_string(),
@@ -535,13 +541,16 @@ mod tests {
             vec!["output".to_string()],
         );
         graph.add_node(add_node);
-        
+
         let mut inputs = HashMap::new();
-        inputs.insert("input".to_string(), Tensor::from_shape_vec(&[1, 2], vec![-1.0, 2.0]).unwrap());
+        inputs.insert(
+            "input".to_string(),
+            Tensor::from_shape_vec(&[1, 2], vec![-1.0, 2.0]).unwrap(),
+        );
 
         let outputs = runtime.execute(&graph, inputs).unwrap();
         assert!(outputs.contains_key("output"));
-        
+
         // Expected: ReLU(-1, 2) = (0, 2), then (0, 2) + (0, 2) = (0, 4)
         let output = outputs.get("output").unwrap();
         let data = output.data();
@@ -610,7 +619,7 @@ mod tests {
     #[test]
     fn test_execution_stats_default() {
         let stats = ExecutionStats::default();
-        
+
         assert_eq!(stats.total_time_ms, 0.0);
         assert_eq!(stats.ops_executed, 0);
         assert_eq!(stats.memory_usage_bytes, 0);
@@ -621,11 +630,11 @@ mod tests {
     #[test]
     fn test_runtime_builder_pattern() {
         let runtime = Runtime::new();
-        
+
         assert!(!runtime.debug);
-        
+
         let runtime2 = Runtime::with_debug();
-        
+
         assert!(runtime2.debug);
     }
 
@@ -643,7 +652,7 @@ mod tests {
 
         let outputs = runtime.execute(&graph, inputs).unwrap();
         assert!(outputs.contains_key("output"));
-        
+
         let output = outputs.get("output").unwrap();
         assert_eq!(output.shape(), &[1, 2]); // Batch size 1, output dim 2
     }
@@ -654,7 +663,7 @@ mod tests {
 
         let tensor1 = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
         let tensor2 = Tensor::from_array(Array1::from_vec(vec![4.0, 5.0, 6.0]));
-        
+
         context.add_tensor("test".to_string(), tensor1);
         context.add_tensor("test".to_string(), tensor2); // Overwrite
 

@@ -419,7 +419,10 @@ mod tests {
         let data = vec![1.0, 2.0, 3.0];
         let result = Tensor::from_shape_vec(&[2, 2], data); // 3 elements for 4 slots
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid dimensions"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid dimensions"));
 
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let result = Tensor::from_shape_vec(&[2, 2], data); // 5 elements for 4 slots
@@ -429,11 +432,11 @@ mod tests {
     #[test]
     fn test_data_accessors() {
         let mut tensor = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        
+
         // Test immutable access
         let data = tensor.data();
         assert_eq!(data[[0, 0]], 1.0);
-        
+
         // Test mutable access
         let data_mut = tensor.data_mut();
         data_mut[[0, 0]] = 10.0;
@@ -634,7 +637,7 @@ mod tests {
     fn test_transpose_square_matrix() {
         let tensor = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
         let transposed = tensor.transpose().unwrap();
-        
+
         assert_eq!(transposed.shape(), &[2, 2]);
         let data = transposed.data();
         assert_eq!(data[[0, 0]], 1.0);
@@ -721,7 +724,7 @@ mod tests {
     fn test_tensor_equality_with_tolerance() {
         let a = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
         let b = Tensor::from_array(Array1::from_vec(vec![1.0000001, 2.0000001, 3.0000001]));
-        
+
         // Should be equal within tolerance
         assert_eq!(a, b);
     }
@@ -730,7 +733,7 @@ mod tests {
     fn test_tensor_display() {
         let tensor = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
         let display_string = format!("{tensor}");
-        
+
         assert!(display_string.contains("Tensor[2, 2]"));
         assert!(display_string.contains("1"));
         assert!(display_string.contains("2"));
@@ -742,7 +745,7 @@ mod tests {
     fn test_tensor_clone() {
         let tensor = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
         let cloned = tensor.clone();
-        
+
         assert_eq!(tensor, cloned);
         assert_eq!(tensor.shape(), cloned.shape());
         assert_eq!(tensor.len(), cloned.len());
@@ -753,12 +756,12 @@ mod tests {
         // Test chaining operations
         let a = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
         let b = Tensor::from_shape_vec(&[2, 2], vec![2.0, 2.0, 2.0, 2.0]).unwrap();
-        
+
         let added = a.add(&b).unwrap();
         let multiplied = added.mul(&b).unwrap();
         let relu_result = multiplied.relu();
         let sigmoid_result = relu_result.sigmoid();
-        
+
         assert_eq!(sigmoid_result.shape(), &[2, 2]);
         // All values should be positive after ReLU and between 0 and 1 after sigmoid
         assert!(sigmoid_result.data().iter().all(|&x| x > 0.0 && x < 1.0));

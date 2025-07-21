@@ -193,10 +193,20 @@ mod tests {
 
     #[test]
     fn test_result_type_alias() {
-        let success: Result<i32> = Ok(42);
-        assert_eq!(success.unwrap(), 42);
+        // Test that our Result type alias works with functions
+        fn returns_success() -> Result<i32> {
+            Ok(42)
+        }
 
-        let failure: Result<i32> = Err(OnnxError::other("test error"));
+        fn returns_error() -> Result<i32> {
+            Err(OnnxError::other("test error"))
+        }
+
+        let success = returns_success();
+        assert!(success.is_ok());
+        assert_eq!(success.unwrap_or(0), 42);
+
+        let failure = returns_error();
         assert!(failure.is_err());
     }
 

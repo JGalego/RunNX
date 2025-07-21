@@ -41,9 +41,17 @@ fn test_cli_missing_model() {
 #[test]
 fn test_cli_invalid_argument() {
     let temp_model = create_temp_model_file();
-    
+
     let output = Command::new("cargo")
-        .args(["run", "--bin", "runnx-runner", "--", "--model", temp_model.path().to_str().unwrap(), "--invalid-arg"])
+        .args([
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            temp_model.path().to_str().unwrap(),
+            "--invalid-arg",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -56,9 +64,17 @@ fn test_cli_invalid_argument() {
 #[test]
 fn test_cli_model_summary() {
     let temp_model = create_temp_model_file();
-    
+
     let output = Command::new("cargo")
-        .args(["run", "--bin", "runnx-runner", "--", "--model", temp_model.path().to_str().unwrap(), "--summary"])
+        .args([
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            temp_model.path().to_str().unwrap(),
+            "--summary",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -71,9 +87,18 @@ fn test_cli_model_summary() {
 #[test]
 fn test_cli_verbose() {
     let temp_model = create_temp_model_file();
-    
+
     let output = Command::new("cargo")
-        .args(["run", "--bin", "runnx-runner", "--", "--model", temp_model.path().to_str().unwrap(), "--verbose", "--summary"])
+        .args([
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            temp_model.path().to_str().unwrap(),
+            "--verbose",
+            "--summary",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -86,9 +111,16 @@ fn test_cli_verbose() {
 #[test]
 fn test_cli_default_inputs() {
     let temp_model = create_temp_model_file();
-    
+
     let output = Command::new("cargo")
-        .args(["run", "--bin", "runnx-runner", "--", "--model", temp_model.path().to_str().unwrap()])
+        .args([
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            temp_model.path().to_str().unwrap(),
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -102,12 +134,17 @@ fn test_cli_default_inputs() {
 fn test_cli_custom_inputs() {
     let temp_model = create_temp_model_file();
     let temp_input = create_temp_input_file();
-    
+
     let output = Command::new("cargo")
         .args([
-            "run", "--bin", "runnx-runner", "--", 
-            "--model", temp_model.path().to_str().unwrap(),
-            "--input", temp_input.path().to_str().unwrap()
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            temp_model.path().to_str().unwrap(),
+            "--input",
+            temp_input.path().to_str().unwrap(),
         ])
         .output()
         .expect("Failed to execute command");
@@ -123,12 +160,17 @@ fn test_cli_output_file() {
     let temp_model = create_temp_model_file();
     let temp_output = NamedTempFile::new().unwrap();
     let output_path = temp_output.path().to_str().unwrap();
-    
+
     let output = Command::new("cargo")
         .args([
-            "run", "--bin", "runnx-runner", "--", 
-            "--model", temp_model.path().to_str().unwrap(),
-            "--output", output_path
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            temp_model.path().to_str().unwrap(),
+            "--output",
+            output_path,
         ])
         .output()
         .expect("Failed to execute command");
@@ -136,7 +178,7 @@ fn test_cli_output_file() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Outputs saved to"));
-    
+
     // Verify output file was created and contains valid JSON
     let output_content = fs::read_to_string(output_path).unwrap();
     assert!(serde_json::from_str::<serde_json::Value>(&output_content).is_ok());
@@ -147,9 +189,16 @@ fn test_cli_output_file() {
 fn test_cli_invalid_model() {
     let temp_file = NamedTempFile::new().unwrap();
     fs::write(temp_file.path(), "invalid json").unwrap();
-    
+
     let output = Command::new("cargo")
-        .args(["run", "--bin", "runnx-runner", "--", "--model", temp_file.path().to_str().unwrap()])
+        .args([
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            temp_file.path().to_str().unwrap(),
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -164,12 +213,17 @@ fn test_cli_invalid_input() {
     let temp_model = create_temp_model_file();
     let temp_input = NamedTempFile::new().unwrap();
     fs::write(temp_input.path(), "invalid json").unwrap();
-    
+
     let output = Command::new("cargo")
         .args([
-            "run", "--bin", "runnx-runner", "--", 
-            "--model", temp_model.path().to_str().unwrap(),
-            "--input", temp_input.path().to_str().unwrap()
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            temp_model.path().to_str().unwrap(),
+            "--input",
+            temp_input.path().to_str().unwrap(),
         ])
         .output()
         .expect("Failed to execute command");
@@ -183,7 +237,14 @@ fn test_cli_invalid_input() {
 #[test]
 fn test_cli_nonexistent_model() {
     let output = Command::new("cargo")
-        .args(["run", "--bin", "runnx-runner", "--", "--model", "/nonexistent/path.json"])
+        .args([
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            "/nonexistent/path.json",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -196,12 +257,17 @@ fn test_cli_nonexistent_model() {
 #[test]
 fn test_cli_nonexistent_input() {
     let temp_model = create_temp_model_file();
-    
+
     let output = Command::new("cargo")
         .args([
-            "run", "--bin", "runnx-runner", "--", 
-            "--model", temp_model.path().to_str().unwrap(),
-            "--input", "/nonexistent/input.json"
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            temp_model.path().to_str().unwrap(),
+            "--input",
+            "/nonexistent/input.json",
         ])
         .output()
         .expect("Failed to execute command");
@@ -215,21 +281,21 @@ fn test_cli_nonexistent_input() {
 #[test]
 fn test_cli_argument_parsing_edge_cases() {
     let _temp_model = create_temp_model_file();
-    
+
     // Test missing argument value
     let output = Command::new("cargo")
         .args(["run", "--bin", "runnx-runner", "--", "--model"])
         .output()
         .expect("Failed to execute command");
-    
+
     assert!(!output.status.success());
-    
+
     // Test model required error
     let output = Command::new("cargo")
         .args(["run", "--bin", "runnx-runner", "--", "--verbose"])
         .output()
         .expect("Failed to execute command");
-    
+
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("--model is required") || stderr.contains("model"));
@@ -241,15 +307,21 @@ fn test_cli_all_flags() {
     let temp_model = create_temp_model_file();
     let temp_input = create_temp_input_file();
     let temp_output = NamedTempFile::new().unwrap();
-    
+
     let output = Command::new("cargo")
         .args([
-            "run", "--bin", "runnx-runner", "--", 
-            "--model", temp_model.path().to_str().unwrap(),
-            "--input", temp_input.path().to_str().unwrap(),
-            "--output", temp_output.path().to_str().unwrap(),
+            "run",
+            "--bin",
+            "runnx-runner",
+            "--",
+            "--model",
+            temp_model.path().to_str().unwrap(),
+            "--input",
+            temp_input.path().to_str().unwrap(),
+            "--output",
+            temp_output.path().to_str().unwrap(),
             "--verbose",
-            "--summary"
+            "--summary",
         ])
         .output()
         .expect("Failed to execute command");
@@ -276,8 +348,12 @@ fn create_temp_input_file() -> NamedTempFile {
             "shape": [1, 3]
         }
     });
-    
+
     let temp_file = NamedTempFile::new().unwrap();
-    fs::write(temp_file.path(), serde_json::to_string_pretty(&input_data).unwrap()).unwrap();
+    fs::write(
+        temp_file.path(),
+        serde_json::to_string_pretty(&input_data).unwrap(),
+    )
+    .unwrap();
     temp_file
 }

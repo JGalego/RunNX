@@ -308,9 +308,10 @@ impl std::fmt::Display for Model {
 mod tests {
     use super::*;
     use crate::Graph;
+    #[cfg(feature = "async")]
     use ndarray::Array2;
-    use tempfile::NamedTempFile;
     use std::fs;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_model_creation() {
@@ -390,7 +391,7 @@ mod tests {
     #[test]
     fn test_model_validation_empty_name() {
         let metadata = ModelMetadata {
-            name: "".to_string(),  // Empty name should cause validation error
+            name: "".to_string(), // Empty name should cause validation error
             ..Default::default()
         };
 
@@ -399,7 +400,10 @@ mod tests {
 
         let result = model.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("name cannot be empty"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("name cannot be empty"));
     }
 
     #[test]
@@ -505,11 +509,14 @@ mod tests {
     #[test]
     fn test_model_to_file_error() {
         let model = Model::create_simple_linear();
-        
+
         // Try to save to an invalid path (directory doesn't exist)
         let result = model.to_file("/nonexistent/directory/model.json");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Failed to write model file"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to write model file"));
     }
 
     #[test]
@@ -601,8 +608,7 @@ mod tests {
         let result = Model::from_file(file_path);
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("JSON error") || 
-                error_msg.contains("parse"));
+        assert!(error_msg.contains("JSON error") || error_msg.contains("parse"));
     }
 
     #[test]
@@ -623,8 +629,9 @@ mod tests {
         let result = Model::from_file("/nonexistent/path/model.json");
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("Failed to read model file") ||
-                error_msg.contains("No such file"));
+        assert!(
+            error_msg.contains("Failed to read model file") || error_msg.contains("No such file")
+        );
     }
 
     #[test]
@@ -636,7 +643,7 @@ mod tests {
         assert_eq!(model.name(), model_copy.name());
         assert_eq!(model.input_names(), model_copy.input_names());
         assert_eq!(model.output_names(), model_copy.output_names());
-        
+
         let mut inputs = HashMap::new();
         inputs.insert(
             "input".to_string(),
@@ -646,7 +653,7 @@ mod tests {
         // Both models should produce the same output
         let outputs1 = model.run(&inputs).unwrap();
         let outputs2 = model_copy.run(&inputs).unwrap();
-        
+
         assert_eq!(outputs1.len(), outputs2.len());
         for (key, tensor1) in &outputs1 {
             let tensor2 = outputs2.get(key).unwrap();
@@ -657,7 +664,7 @@ mod tests {
     #[test]
     fn test_model_serialization_round_trip_preserves_functionality() {
         let model = Model::create_simple_linear();
-        
+
         // Test original model
         let mut inputs = HashMap::new();
         inputs.insert(
@@ -665,20 +672,20 @@ mod tests {
             Tensor::from_shape_vec(&[1, 3], vec![1.0, 2.0, 3.0]).unwrap(),
         );
         let original_outputs = model.run(&inputs).unwrap();
-        
+
         // Serialize and deserialize
         let temp_file = NamedTempFile::new().unwrap();
         model.to_file(temp_file.path()).unwrap();
         let loaded_model = Model::from_file(temp_file.path()).unwrap();
-        
+
         // Test loaded model produces same results
         let loaded_outputs = loaded_model.run(&inputs).unwrap();
-        
+
         assert_eq!(original_outputs.len(), loaded_outputs.len());
         for (key, original_tensor) in &original_outputs {
             let loaded_tensor = loaded_outputs.get(key).unwrap();
             assert_eq!(original_tensor.shape(), loaded_tensor.shape());
-            
+
             let original_data = original_tensor.data();
             let loaded_data = loaded_tensor.data();
             for (orig, loaded) in original_data.iter().zip(loaded_data.iter()) {
