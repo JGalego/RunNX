@@ -59,7 +59,7 @@ pub use tensor::Tensor;
 // Re-export commonly used external types
 pub use ndarray;
 
-/// Version of the ONNX-RS-MIN crate
+/// Version of the RunNX crate
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]

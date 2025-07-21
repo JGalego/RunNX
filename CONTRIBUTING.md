@@ -1,4 +1,4 @@
-# Contributing to ONNX-RS-MIN
+# Contributing
 
 We love your input! We want to make contributing to this project as easy and transparent as possible, whether it's:
 
@@ -53,9 +53,9 @@ We use standard Rust formatting. Please run `cargo fmt` before submitting.
 
 In short, when you submit code changes, your submissions are understood to be under the same [MIT/Apache-2.0 License](LICENSE) that covers the project. Feel free to contact the maintainers if that's a concern.
 
-## Report bugs using GitHub's [issues](https://github.com/yourusername/onnx-rs-min/issues)
+## Report bugs using GitHub's [issues](https://github.com/JGalego/runnx/issues)
 
-We use GitHub issues to track public bugs. Report a bug by [opening a new issue](https://github.com/yourusername/onnx-rs-min/issues/new); it's that easy!
+We use GitHub issues to track public bugs. Report a bug by [opening a new issue](https://github.com/JGalego/runnx/issues/new); it's that easy!
 
 **Great Bug Reports** tend to have:
 
