@@ -23,7 +23,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     /// use ndarray::Array2;
     ///
     /// let array = Array2::from_elem((2, 3), 1.0);
@@ -45,7 +45,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     ///
     /// let tensor = Tensor::zeros(&[2, 3, 4]);
     /// assert_eq!(tensor.shape(), &[2, 3, 4]);
@@ -62,7 +62,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     ///
     /// let tensor = Tensor::ones(&[2, 2]);
     /// assert_eq!(tensor.shape(), &[2, 2]);
@@ -79,7 +79,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     ///
     /// let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
     /// let tensor = Tensor::from_shape_vec(&[2, 3], data).unwrap();
@@ -126,7 +126,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     /// use ndarray::Array1;
     ///
     /// let a = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
@@ -153,7 +153,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     /// use ndarray::Array1;
     ///
     /// let a = Tensor::from_array(Array1::from_vec(vec![2.0, 3.0, 4.0]));
@@ -180,7 +180,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     /// use ndarray::Array2;
     ///
     /// let a = Tensor::from_array(Array2::from_shape_vec((2, 3), vec![1., 2., 3., 4., 5., 6.]).unwrap());
@@ -206,9 +206,15 @@ impl Tensor {
             ));
         }
 
-        let self_2d = self.data.view().into_dimensionality::<ndarray::Ix2>()
+        let self_2d = self
+            .data
+            .view()
+            .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| OnnxError::invalid_dimensions(e.to_string()))?;
-        let other_2d = other.data.view().into_dimensionality::<ndarray::Ix2>()
+        let other_2d = other
+            .data
+            .view()
+            .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| OnnxError::invalid_dimensions(e.to_string()))?;
 
         let result = self_2d.dot(&other_2d);
@@ -220,7 +226,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     ///
     /// let tensor = Tensor::from_shape_vec(&[2, 3], vec![1., 2., 3., 4., 5., 6.]).unwrap();
     /// let reshaped = tensor.reshape(&[3, 2]).unwrap();
@@ -237,7 +243,8 @@ impl Tensor {
             )));
         }
 
-        let reshaped = self.data
+        let reshaped = self
+            .data
             .view()
             .into_shape(IxDyn(new_shape))
             .map_err(|e| OnnxError::invalid_dimensions(e.to_string()))?
@@ -251,7 +258,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     ///
     /// let tensor = Tensor::from_shape_vec(&[2, 3], vec![1., 2., 3., 4., 5., 6.]).unwrap();
     /// let transposed = tensor.transpose().unwrap();
@@ -273,7 +280,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     /// use ndarray::Array1;
     ///
     /// let tensor = Tensor::from_array(Array1::from_vec(vec![-1.0, 0.0, 1.0, 2.0]));
@@ -294,7 +301,7 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// use onnx_rs_min::Tensor;
+    /// use runnx::Tensor;
     /// use ndarray::Array1;
     ///
     /// let tensor = Tensor::from_array(Array1::from_vec(vec![0.0]));
@@ -321,7 +328,10 @@ impl PartialEq for Tensor {
             return false;
         }
 
-        self.data.iter().zip(other.data.iter()).all(|(a, b)| (a - b).abs() < 1e-6)
+        self.data
+            .iter()
+            .zip(other.data.iter())
+            .all(|(a, b)| (a - b).abs() < 1e-6)
     }
 }
 
@@ -397,12 +407,16 @@ mod tests {
 
     #[test]
     fn test_matmul() {
-        let a = Tensor::from_array(Array2::from_shape_vec((2, 3), vec![1., 2., 3., 4., 5., 6.]).unwrap());
-        let b = Tensor::from_array(Array2::from_shape_vec((3, 2), vec![1., 2., 3., 4., 5., 6.]).unwrap());
+        let a = Tensor::from_array(
+            Array2::from_shape_vec((2, 3), vec![1., 2., 3., 4., 5., 6.]).unwrap(),
+        );
+        let b = Tensor::from_array(
+            Array2::from_shape_vec((3, 2), vec![1., 2., 3., 4., 5., 6.]).unwrap(),
+        );
         let result = a.matmul(&b).unwrap();
 
         assert_eq!(result.shape(), &[2, 2]);
-        
+
         // Expected: [[22, 28], [49, 64]]
         let data = result.data();
         let expected = vec![22.0, 28.0, 49.0, 64.0];

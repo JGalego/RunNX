@@ -74,16 +74,16 @@ impl Runtime {
     ///
     /// # Examples
     /// ```
-    /// use onnx_rs_min::{runtime::Runtime, Graph, Tensor};
+    /// use runnx::{Runtime, Graph, Tensor};
     /// use std::collections::HashMap;
     /// use ndarray::Array2;
     ///
     /// let runtime = Runtime::new();
     /// let graph = Graph::create_simple_linear();
-    /// 
+    ///
     /// let mut inputs = HashMap::new();
     /// inputs.insert("input".to_string(), Tensor::from_array(Array2::from_shape_vec((1, 3), vec![1.0, 2.0, 3.0]).unwrap().into_dyn()));
-    /// 
+    ///
     /// let outputs = runtime.execute(&graph, inputs).unwrap();
     /// assert!(outputs.contains_key("output"));
     /// ```
@@ -93,7 +93,7 @@ impl Runtime {
         inputs: HashMap<String, Tensor>,
     ) -> Result<HashMap<String, Tensor>> {
         let start_time = std::time::Instant::now();
-        
+
         if self.debug {
             log::debug!("Starting execution of graph '{}'", graph.name);
         }
@@ -107,7 +107,7 @@ impl Runtime {
         // Create execution context
         let mut context = ExecutionContext::new();
         context.add_tensors(inputs);
-        
+
         // Add initializers
         for (name, tensor) in &graph.initializers {
             context.add_tensor(name.clone(), tensor.clone());
@@ -129,7 +129,10 @@ impl Runtime {
         context.stats.total_time_ms = start_time.elapsed().as_millis() as f64;
 
         if self.debug {
-            log::debug!("Execution completed in {:.2}ms", context.stats.total_time_ms);
+            log::debug!(
+                "Execution completed in {:.2}ms",
+                context.stats.total_time_ms
+            );
             log::debug!("Operations executed: {}", context.stats.ops_executed);
         }
 
@@ -145,26 +148,23 @@ impl Runtime {
     ) -> Result<HashMap<String, Tensor>> {
         // For now, just delegate to sync execution
         // In a full implementation, this would support parallel execution
-        tokio::task::spawn_blocking(move || {
-            self.execute(graph, inputs)
-        }).await.map_err(|e| OnnxError::runtime_error(e.to_string()))?
+        tokio::task::spawn_blocking(move || self.execute(graph, inputs))
+            .await
+            .map_err(|e| OnnxError::runtime_error(e.to_string()))?
     }
 
     /// Validate that inputs match the graph's input specifications
-    fn validate_inputs(
-        &self,
-        graph: &Graph,
-        inputs: &HashMap<String, Tensor>,
-    ) -> Result<()> {
+    fn validate_inputs(&self, graph: &Graph, inputs: &HashMap<String, Tensor>) -> Result<()> {
         for input_spec in &graph.inputs {
-            let tensor = inputs.get(&input_spec.name)
-                .ok_or_else(|| OnnxError::runtime_error(format!(
-                    "Missing required input: {}", input_spec.name
-                )))?;
+            let tensor = inputs.get(&input_spec.name).ok_or_else(|| {
+                OnnxError::runtime_error(format!("Missing required input: {}", input_spec.name))
+            })?;
 
             if !input_spec.matches_tensor(tensor) {
                 return Err(OnnxError::shape_mismatch(
-                    &input_spec.shape.iter()
+                    &input_spec
+                        .shape
+                        .iter()
                         .map(|dim| dim.unwrap_or(0))
                         .collect::<Vec<_>>(),
                     tensor.shape(),
@@ -184,24 +184,26 @@ impl Runtime {
         }
 
         // Gather input tensors
-        let input_tensors: Vec<Tensor> = node.inputs
+        let input_tensors: Vec<Tensor> = node
+            .inputs
             .iter()
             .map(|name| {
-                context.get_tensor(name)
-                    .ok_or_else(|| OnnxError::runtime_error(format!(
-                        "Node '{}' references unknown tensor '{}'", node.name, name
-                    )))
+                context
+                    .get_tensor(name)
+                    .ok_or_else(|| {
+                        OnnxError::runtime_error(format!(
+                            "Node '{}' references unknown tensor '{}'",
+                            node.name, name
+                        ))
+                    })
                     .cloned()
             })
             .collect::<Result<Vec<_>>>()?;
 
         // Execute the operator
         let op_type = node.get_operator_type()?;
-        let output_tensors = operators::execute_operator(
-            &op_type,
-            &input_tensors,
-            &node.attributes,
-        )?;
+        let output_tensors =
+            operators::execute_operator(&op_type, &input_tensors, &node.attributes)?;
 
         // Store output tensors
         if output_tensors.len() != node.outputs.len() {
@@ -220,14 +222,14 @@ impl Runtime {
         // Update statistics
         let execution_time = node_start.elapsed().as_millis() as f64;
         context.stats.ops_executed += 1;
-        *context.stats.op_times.entry(node.op_type.clone()).or_insert(0.0) += execution_time;
+        *context
+            .stats
+            .op_times
+            .entry(node.op_type.clone())
+            .or_insert(0.0) += execution_time;
 
         if self.debug {
-            log::debug!(
-                "Node '{}' executed in {:.2}ms",
-                node.name,
-                execution_time
-            );
+            log::debug!("Node '{}' executed in {:.2}ms", node.name, execution_time);
         }
 
         Ok(())
@@ -242,11 +244,12 @@ impl Runtime {
         let mut outputs = HashMap::new();
 
         for output_spec in &graph.outputs {
-            let tensor = context.get_tensor(&output_spec.name)
-                .ok_or_else(|| OnnxError::runtime_error(format!(
+            let tensor = context.get_tensor(&output_spec.name).ok_or_else(|| {
+                OnnxError::runtime_error(format!(
                     "Graph output '{}' not found in execution context",
                     output_spec.name
-                )))?;
+                ))
+            })?;
 
             outputs.insert(output_spec.name.clone(), tensor.clone());
         }
@@ -326,7 +329,7 @@ impl ExecutionStats {
 mod tests {
     use super::*;
     use crate::{Graph, Tensor};
-    use ndarray::{Array1, Array2};
+    use ndarray::Array1;
 
     #[test]
     fn test_runtime_creation() {
@@ -341,10 +344,10 @@ mod tests {
     #[test]
     fn test_execution_context() {
         let mut context = ExecutionContext::new();
-        
+
         let tensor = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
         context.add_tensor("test".to_string(), tensor);
-        
+
         assert!(context.get_tensor("test").is_some());
         assert!(context.get_tensor("missing").is_none());
         assert_eq!(context.tensor_names(), vec!["test"]);
@@ -353,22 +356,22 @@ mod tests {
     #[test]
     fn test_simple_execution() {
         env_logger::try_init().ok(); // Initialize logger for tests
-        
+
         let runtime = Runtime::with_debug();
         let graph = Graph::create_simple_linear();
-        
+
         let mut inputs = HashMap::new();
         inputs.insert(
             "input".to_string(),
             Tensor::from_shape_vec(&[1, 3], vec![1.0, 2.0, 3.0]).unwrap(),
         );
-        
+
         let outputs = runtime.execute(&graph, inputs).unwrap();
         assert!(outputs.contains_key("output"));
-        
+
         let output = outputs.get("output").unwrap();
         assert_eq!(output.shape(), &[1, 2]);
-        
+
         // Expected result: [1, 2, 3] * [[0.5, 0.3], [0.2, 0.4], [0.1, 0.6]] + [0.1, 0.2]
         // = [1*0.5 + 2*0.2 + 3*0.1, 1*0.3 + 2*0.4 + 3*0.6] + [0.1, 0.2]
         // = [0.5 + 0.4 + 0.3, 0.3 + 0.8 + 1.8] + [0.1, 0.2]
@@ -376,7 +379,12 @@ mod tests {
         let data = output.data();
         let expected = vec![1.3, 3.1];
         for (actual, &expected) in data.iter().zip(expected.iter()) {
-            assert!((actual - expected).abs() < 1e-6, "Expected {}, got {}", expected, actual);
+            assert!(
+                (actual - expected).abs() < 1e-6,
+                "Expected {}, got {}",
+                expected,
+                actual
+            );
         }
     }
 
@@ -384,9 +392,9 @@ mod tests {
     fn test_missing_input() {
         let runtime = Runtime::new();
         let graph = Graph::create_simple_linear();
-        
+
         let inputs = HashMap::new(); // Missing required input
-        
+
         let result = runtime.execute(&graph, inputs);
         assert!(result.is_err());
     }
@@ -396,13 +404,17 @@ mod tests {
     async fn test_async_execution() {
         let runtime = Runtime::new();
         let graph = Graph::create_simple_linear();
-        
+
         let mut inputs = HashMap::new();
         inputs.insert(
             "input".to_string(),
-            Tensor::from_array(Array2::from_shape_vec((1, 3), vec![1.0, 2.0, 3.0]).unwrap().into_dyn()),
+            Tensor::from_array(
+                Array2::from_shape_vec((1, 3), vec![1.0, 2.0, 3.0])
+                    .unwrap()
+                    .into_dyn(),
+            ),
         );
-        
+
         let outputs = runtime.execute_async(&graph, inputs).await.unwrap();
         assert!(outputs.contains_key("output"));
     }
@@ -413,7 +425,7 @@ mod tests {
         stats.total_time_ms = 100.0;
         stats.ops_executed = 5;
         stats.memory_usage_bytes = 1024 * 1024; // 1MB
-        
+
         assert_eq!(stats.avg_op_time(), 20.0);
         assert_eq!(stats.memory_usage_mb(), 1.0);
     }

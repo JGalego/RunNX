@@ -54,6 +54,7 @@ pub mod tensor;
 pub use error::{OnnxError, Result};
 pub use graph::{Graph, Node};
 pub use model::Model;
+pub use runtime::Runtime;
 pub use tensor::Tensor;
 
 // Re-export commonly used external types
@@ -71,10 +72,10 @@ mod tests {
     fn test_basic_tensor_operations() {
         let a = Tensor::from_array(Array2::from_elem((2, 3), 1.0));
         let b = Tensor::from_array(Array2::from_elem((2, 3), 2.0));
-        
+
         let result = a.add(&b).unwrap();
         assert_eq!(result.shape(), &[2, 3]);
-        
+
         // Verify all elements are 3.0 (1.0 + 2.0)
         let data = result.data();
         assert!(data.iter().all(|&x| (x - 3.0).abs() < 1e-6));
@@ -82,12 +83,16 @@ mod tests {
 
     #[test]
     fn test_matrix_multiplication() {
-        let a = Tensor::from_array(Array2::from_shape_vec((2, 3), vec![1., 2., 3., 4., 5., 6.]).unwrap());
-        let b = Tensor::from_array(Array2::from_shape_vec((3, 2), vec![1., 2., 3., 4., 5., 6.]).unwrap());
-        
+        let a = Tensor::from_array(
+            Array2::from_shape_vec((2, 3), vec![1., 2., 3., 4., 5., 6.]).unwrap(),
+        );
+        let b = Tensor::from_array(
+            Array2::from_shape_vec((3, 2), vec![1., 2., 3., 4., 5., 6.]).unwrap(),
+        );
+
         let result = a.matmul(&b).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
-        
+
         // Expected result: [[22, 28], [49, 64]]
         let data = result.data();
         let expected = vec![22.0, 28.0, 49.0, 64.0];

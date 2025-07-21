@@ -21,7 +21,7 @@ impl Args {
     /// Parse command-line arguments
     fn parse() -> Result<Self, String> {
         let args: Vec<String> = env::args().collect();
-        
+
         if args.len() < 2 {
             return Err("Usage: runnx-runner --model <model.json> [options]".to_string());
         }
@@ -31,7 +31,7 @@ impl Args {
         let mut output_path = None;
         let mut verbose = false;
         let mut show_summary = false;
-        
+
         let mut i = 1;
         while i < args.len() {
             match args[i].as_str() {
@@ -176,7 +176,7 @@ fn main() {
     // Run inference
     println!("Running inference...");
     let start_time = std::time::Instant::now();
-    
+
     let outputs = match model.run(&inputs) {
         Ok(outputs) => outputs,
         Err(e) => {
@@ -219,13 +219,13 @@ fn load_inputs(
             // Load from JSON file
             let content = fs::read_to_string(path)?;
             let input_data: InputData = serde_json::from_str(&content)?;
-            
+
             let mut inputs = HashMap::new();
             for (name, input_tensor) in input_data.inputs {
                 let tensor = Tensor::from_shape_vec(&input_tensor.shape, input_tensor.data)?;
                 inputs.insert(name, tensor);
             }
-            
+
             Ok(inputs)
         }
         None => {
@@ -233,17 +233,21 @@ fn load_inputs(
             let mut inputs = HashMap::new();
             for input_spec in model.input_specs() {
                 // Convert Option<usize> to usize, using 1 for dynamic dimensions
-                let shape: Vec<usize> = input_spec.shape
+                let shape: Vec<usize> = input_spec
+                    .shape
                     .iter()
                     .map(|&dim| dim.unwrap_or(1))
                     .collect();
-                
+
                 let tensor = Tensor::zeros(&shape);
                 inputs.insert(input_spec.name.clone(), tensor);
-                
-                println!("Created default input '{}' with shape {:?}", input_spec.name, shape);
+
+                println!(
+                    "Created default input '{}' with shape {:?}",
+                    input_spec.name, shape
+                );
             }
-            
+
             Ok(inputs)
         }
     }
@@ -265,8 +269,10 @@ fn save_outputs(
                 };
                 output_data.insert(name.clone(), output_tensor);
             }
-            
-            let json_data = OutputData { outputs: output_data };
+
+            let json_data = OutputData {
+                outputs: output_data,
+            };
             let content = serde_json::to_string_pretty(&json_data)?;
             fs::write(path, content)?;
         }
@@ -276,7 +282,7 @@ fn save_outputs(
             for (name, tensor) in outputs {
                 println!("{}:", name);
                 println!("  Shape: {:?}", tensor.shape());
-                
+
                 // Get the raw data as a 1D slice for display
                 if let Some(data_slice) = tensor.data().as_slice() {
                     let display_len = 10.min(data_slice.len());
@@ -286,13 +292,16 @@ fn save_outputs(
                     }
                 } else {
                     // Fallback for non-contiguous arrays
-                    println!("  Data: (non-contiguous layout, shape: {:?})", tensor.shape());
+                    println!(
+                        "  Data: (non-contiguous layout, shape: {:?})",
+                        tensor.shape()
+                    );
                 }
                 println!();
             }
         }
     }
-    
+
     Ok(())
 }
 

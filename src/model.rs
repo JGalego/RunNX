@@ -6,7 +6,7 @@
 use crate::{
     error::{OnnxError, Result},
     graph::Graph,
-    runtime::{Runtime, ExecutionStats},
+    runtime::{ExecutionStats, Runtime},
     tensor::Tensor,
 };
 use serde::{Deserialize, Serialize};
@@ -77,22 +77,28 @@ impl Model {
     ///
     /// # Examples
     /// ```no_run
-    /// use onnx_rs_min::Model;
+    /// use runnx::Model;
     ///
     /// let model = Model::from_file("model.json").unwrap();
     /// println!("Loaded model: {}", model.name());
     /// ```
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        let content = fs::read_to_string(path)
-            .map_err(|e| OnnxError::model_load_error(format!(
-                "Failed to read model file '{}': {}", path.display(), e
-            )))?;
+        let content = fs::read_to_string(path).map_err(|e| {
+            OnnxError::model_load_error(format!(
+                "Failed to read model file '{}': {}",
+                path.display(),
+                e
+            ))
+        })?;
 
-        let model: Model = serde_json::from_str(&content)
-            .map_err(|e| OnnxError::model_load_error(format!(
-                "Failed to parse model file '{}': {}", path.display(), e
-            )))?;
+        let model: Model = serde_json::from_str(&content).map_err(|e| {
+            OnnxError::model_load_error(format!(
+                "Failed to parse model file '{}': {}",
+                path.display(),
+                e
+            ))
+        })?;
 
         // Validate the loaded model
         model.validate()?;
@@ -104,7 +110,7 @@ impl Model {
     ///
     /// # Examples
     /// ```no_run
-    /// use onnx_rs_min::{Model, Graph};
+    /// use runnx::{Model, Graph};
     ///
     /// let graph = Graph::create_simple_linear();
     /// let model = Model::new(graph);
@@ -113,11 +119,14 @@ impl Model {
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
         let content = serde_json::to_string_pretty(self)?;
-        
-        fs::write(path, content)
-            .map_err(|e| OnnxError::other(format!(
-                "Failed to write model file '{}': {}", path.display(), e
-            )))
+
+        fs::write(path, content).map_err(|e| {
+            OnnxError::other(format!(
+                "Failed to write model file '{}': {}",
+                path.display(),
+                e
+            ))
+        })
     }
 
     /// Get the model name
@@ -178,16 +187,16 @@ impl Model {
     ///
     /// # Examples
     /// ```
-    /// use onnx_rs_min::{Model, Graph, Tensor};
+    /// use runnx::{Model, Graph, Tensor};
     /// use std::collections::HashMap;
     /// use ndarray::Array2;
     ///
     /// let graph = Graph::create_simple_linear();
     /// let model = Model::new(graph);
-    /// 
+    ///
     /// let mut inputs = HashMap::new();
     /// inputs.insert("input".to_string(), Tensor::from_array(Array2::from_shape_vec((1, 3), vec![1.0, 2.0, 3.0]).unwrap().into_dyn()));
-    /// 
+    ///
     /// let outputs = model.run(&inputs).unwrap();
     /// assert!(outputs.contains_key("output"));
     /// ```
@@ -212,11 +221,11 @@ impl Model {
     ) -> Result<(HashMap<String, Tensor>, ExecutionStats)> {
         let runtime = Runtime::with_debug();
         let outputs = runtime.execute(&self.graph, inputs.clone())?;
-        
+
         // In a full implementation, we would return the actual stats from the runtime
         // For now, we return default stats
         let stats = ExecutionStats::default();
-        
+
         Ok((outputs, stats))
     }
 
@@ -239,7 +248,7 @@ impl Model {
     /// Get model summary as a formatted string
     pub fn summary(&self) -> String {
         let mut summary = String::new();
-        
+
         summary.push_str(&format!("Model: {}\n", self.name()));
         summary.push_str(&format!("Version: {}\n", self.version()));
         summary.push_str(&format!("Description: {}\n", self.description()));
@@ -247,42 +256,42 @@ impl Model {
         summary.push_str(&format!("ONNX Version: {}\n", self.metadata.onnx_version));
         summary.push_str(&format!("Domain: {}\n", self.metadata.domain));
         summary.push('\n');
-        
+
         summary.push_str("Inputs:\n");
         for input_spec in &self.graph.inputs {
             summary.push_str(&format!(
                 "  - {}: {:?} ({})\n",
-                input_spec.name,
-                input_spec.shape,
-                input_spec.dtype
+                input_spec.name, input_spec.shape, input_spec.dtype
             ));
         }
         summary.push('\n');
-        
+
         summary.push_str("Outputs:\n");
         for output_spec in &self.graph.outputs {
             summary.push_str(&format!(
                 "  - {}: {:?} ({})\n",
-                output_spec.name,
-                output_spec.shape,
-                output_spec.dtype
+                output_spec.name, output_spec.shape, output_spec.dtype
             ));
         }
         summary.push('\n');
-        
+
         summary.push_str(&format!("Graph: {}\n", self.graph.name));
         summary.push_str(&format!("  Nodes: {}\n", self.graph.nodes.len()));
-        summary.push_str(&format!("  Initializers: {}\n", self.graph.initializers.len()));
-        
+        summary.push_str(&format!(
+            "  Initializers: {}\n",
+            self.graph.initializers.len()
+        ));
+
         summary.push_str("  Operations:\n");
-        let mut op_counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let mut op_counts: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
         for node in &self.graph.nodes {
             *op_counts.entry(node.op_type.clone()).or_insert(0) += 1;
         }
         for (op_type, count) in op_counts {
             summary.push_str(&format!("    {}: {}\n", op_type, count));
         }
-        
+
         summary
     }
 }
@@ -297,14 +306,14 @@ impl std::fmt::Display for Model {
 mod tests {
     use super::*;
     use crate::Graph;
-    use ndarray::{Array1, Array2};
+    
     use tempfile::NamedTempFile;
 
     #[test]
     fn test_model_creation() {
         let graph = Graph::create_simple_linear();
         let model = Model::new(graph);
-        
+
         assert_eq!(model.name(), "simple_linear");
         assert_eq!(model.input_names(), vec!["input"]);
         assert_eq!(model.output_names(), vec!["output"]);
@@ -315,10 +324,10 @@ mod tests {
         let mut metadata = ModelMetadata::default();
         metadata.name = "test_model".to_string();
         metadata.description = "Test model for unit testing".to_string();
-        
+
         let graph = Graph::create_simple_linear();
         let model = Model::with_metadata(metadata, graph);
-        
+
         assert_eq!(model.name(), "test_model");
         assert_eq!(model.description(), "Test model for unit testing");
     }
@@ -327,23 +336,23 @@ mod tests {
     fn test_model_validation() {
         let graph = Graph::create_simple_linear();
         let model = Model::new(graph);
-        
+
         assert!(model.validate().is_ok());
     }
 
     #[test]
     fn test_model_run() {
         let model = Model::create_simple_linear();
-        
+
         let mut inputs = HashMap::new();
         inputs.insert(
             "input".to_string(),
             Tensor::from_shape_vec(&[1, 3], vec![1.0, 2.0, 3.0]).unwrap(),
         );
-        
+
         let outputs = model.run(&inputs).unwrap();
         assert!(outputs.contains_key("output"));
-        
+
         let output = outputs.get("output").unwrap();
         assert_eq!(output.shape(), &[1, 2]);
     }
@@ -351,15 +360,15 @@ mod tests {
     #[test]
     fn test_model_serialization() {
         let model = Model::create_simple_linear();
-        
+
         // Create a temporary file
         let temp_file = NamedTempFile::new().unwrap();
         let file_path = temp_file.path();
-        
+
         // Save and load the model
         model.to_file(file_path).unwrap();
         let loaded_model = Model::from_file(file_path).unwrap();
-        
+
         assert_eq!(model.name(), loaded_model.name());
         assert_eq!(model.input_names(), loaded_model.input_names());
         assert_eq!(model.output_names(), loaded_model.output_names());
@@ -369,7 +378,7 @@ mod tests {
     fn test_model_summary() {
         let model = Model::create_simple_linear();
         let summary = model.summary();
-        
+
         assert!(summary.contains("Model: simple_linear"));
         assert!(summary.contains("Inputs:"));
         assert!(summary.contains("Outputs:"));
@@ -383,7 +392,7 @@ mod tests {
         let model = Model::create_simple_linear();
         let display_string = format!("{}", model);
         let summary = model.summary();
-        
+
         assert_eq!(display_string, summary);
     }
 
@@ -391,13 +400,17 @@ mod tests {
     #[cfg(feature = "async")]
     async fn test_model_run_async() {
         let model = Model::create_simple_linear();
-        
+
         let mut inputs = HashMap::new();
         inputs.insert(
             "input".to_string(),
-            Tensor::from_array(Array2::from_shape_vec((1, 3), vec![1.0, 2.0, 3.0]).unwrap().into_dyn()),
+            Tensor::from_array(
+                Array2::from_shape_vec((1, 3), vec![1.0, 2.0, 3.0])
+                    .unwrap()
+                    .into_dyn(),
+            ),
         );
-        
+
         let outputs = model.run_async(&inputs).await.unwrap();
         assert!(outputs.contains_key("output"));
     }
@@ -406,10 +419,10 @@ mod tests {
     fn test_invalid_model_file() {
         let temp_file = NamedTempFile::new().unwrap();
         let file_path = temp_file.path();
-        
+
         // Write invalid JSON
         std::fs::write(file_path, "invalid json").unwrap();
-        
+
         let result = Model::from_file(file_path);
         assert!(result.is_err());
     }

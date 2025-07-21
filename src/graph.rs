@@ -3,7 +3,11 @@
 //! This module defines the graph structure for ONNX models, including
 //! nodes, edges, and the overall graph representation.
 
-use crate::{error::{OnnxError, Result}, operators::OperatorType, tensor::Tensor};
+use crate::{
+    error::{OnnxError, Result},
+    operators::OperatorType,
+    tensor::Tensor,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -24,12 +28,7 @@ pub struct Node {
 
 impl Node {
     /// Create a new node
-    pub fn new(
-        name: String,
-        op_type: String,
-        inputs: Vec<String>,
-        outputs: Vec<String>,
-    ) -> Self {
+    pub fn new(name: String, op_type: String, inputs: Vec<String>, outputs: Vec<String>) -> Self {
         Self {
             name,
             op_type,
@@ -89,7 +88,7 @@ impl TensorSpec {
     /// Check if the tensor spec matches a given tensor
     pub fn matches_tensor(&self, tensor: &Tensor) -> bool {
         let tensor_shape = tensor.shape();
-        
+
         if self.shape.len() != tensor_shape.len() {
             return false;
         }
@@ -169,12 +168,12 @@ impl Graph {
 
         // Check that all node inputs/outputs are valid tensor names
         let mut available_tensors = std::collections::HashSet::new();
-        
+
         // Add input tensors
         for input in &self.inputs {
             available_tensors.insert(&input.name);
         }
-        
+
         // Add initializer tensors
         for name in self.initializers.keys() {
             available_tensors.insert(name);
@@ -267,14 +266,17 @@ impl Graph {
 
         // Add inputs
         graph.add_input(TensorSpec::new("input".to_string(), vec![Some(1), Some(3)]));
-        
+
         // Add outputs
-        graph.add_output(TensorSpec::new("output".to_string(), vec![Some(1), Some(2)]));
+        graph.add_output(TensorSpec::new(
+            "output".to_string(),
+            vec![Some(1), Some(2)],
+        ));
 
         // Add weight initializer
         let weights = Tensor::from_shape_vec(&[3, 2], vec![0.5, 0.3, 0.2, 0.4, 0.1, 0.6]).unwrap();
         let bias = Tensor::from_shape_vec(&[1, 2], vec![0.1, 0.2]).unwrap();
-        
+
         graph.add_initializer("weights".to_string(), weights);
         graph.add_initializer("bias".to_string(), bias);
 
@@ -303,7 +305,6 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::Array1;
 
     #[test]
     fn test_node_creation() {
@@ -326,10 +327,10 @@ mod tests {
     #[test]
     fn test_tensor_spec() {
         let spec = TensorSpec::new("test_tensor".to_string(), vec![Some(2), Some(3), None]);
-        
+
         let matching_tensor = Tensor::zeros(&[2, 3, 5]); // 5 is dynamic
         let non_matching_tensor = Tensor::zeros(&[2, 4, 5]); // Wrong second dimension
-        
+
         assert!(spec.matches_tensor(&matching_tensor));
         assert!(!spec.matches_tensor(&non_matching_tensor));
     }
@@ -337,10 +338,13 @@ mod tests {
     #[test]
     fn test_graph_creation() {
         let mut graph = Graph::new("test_graph".to_string());
-        
+
         graph.add_input(TensorSpec::new("input".to_string(), vec![Some(1), Some(3)]));
-        graph.add_output(TensorSpec::new("output".to_string(), vec![Some(1), Some(1)]));
-        
+        graph.add_output(TensorSpec::new(
+            "output".to_string(),
+            vec![Some(1), Some(1)],
+        ));
+
         let node = Node::new(
             "relu".to_string(),
             "Relu".to_string(),
@@ -359,10 +363,13 @@ mod tests {
     #[test]
     fn test_graph_validation_success() {
         let mut graph = Graph::new("valid_graph".to_string());
-        
+
         graph.add_input(TensorSpec::new("input".to_string(), vec![Some(1), Some(3)]));
-        graph.add_output(TensorSpec::new("output".to_string(), vec![Some(1), Some(3)]));
-        
+        graph.add_output(TensorSpec::new(
+            "output".to_string(),
+            vec![Some(1), Some(3)],
+        ));
+
         let node = Node::new(
             "relu".to_string(),
             "Relu".to_string(),
@@ -377,10 +384,13 @@ mod tests {
     #[test]
     fn test_graph_validation_failure() {
         let mut graph = Graph::new("invalid_graph".to_string());
-        
+
         // Missing input declaration
-        graph.add_output(TensorSpec::new("output".to_string(), vec![Some(1), Some(3)]));
-        
+        graph.add_output(TensorSpec::new(
+            "output".to_string(),
+            vec![Some(1), Some(3)],
+        ));
+
         let node = Node::new(
             "relu".to_string(),
             "Relu".to_string(),
@@ -395,30 +405,39 @@ mod tests {
     #[test]
     fn test_simple_linear_graph() {
         let graph = Graph::create_simple_linear();
-        
+
         assert!(graph.validate().is_ok());
         assert_eq!(graph.nodes.len(), 2);
         assert_eq!(graph.inputs.len(), 1);
         assert_eq!(graph.outputs.len(), 1);
         assert_eq!(graph.initializers.len(), 2);
-        
+
         // Test topological sort
         let order = graph.topological_sort().unwrap();
         assert_eq!(order.len(), 2);
         // MatMul should come before Add
-        let matmul_pos = order.iter().position(|&i| graph.nodes[i].op_type == "MatMul").unwrap();
-        let add_pos = order.iter().position(|&i| graph.nodes[i].op_type == "Add").unwrap();
+        let matmul_pos = order
+            .iter()
+            .position(|&i| graph.nodes[i].op_type == "MatMul")
+            .unwrap();
+        let add_pos = order
+            .iter()
+            .position(|&i| graph.nodes[i].op_type == "Add")
+            .unwrap();
         assert!(matmul_pos < add_pos);
     }
 
     #[test]
     fn test_topological_sort() {
         let mut graph = Graph::new("test_topo".to_string());
-        
+
         // Create a simple chain: input -> relu -> sigmoid -> output
         graph.add_input(TensorSpec::new("input".to_string(), vec![Some(1), Some(3)]));
-        graph.add_output(TensorSpec::new("output".to_string(), vec![Some(1), Some(3)]));
-        
+        graph.add_output(TensorSpec::new(
+            "output".to_string(),
+            vec![Some(1), Some(3)],
+        ));
+
         let relu_node = Node::new(
             "relu".to_string(),
             "Relu".to_string(),
@@ -426,7 +445,7 @@ mod tests {
             vec!["relu_out".to_string()],
         );
         graph.add_node(relu_node);
-        
+
         let sigmoid_node = Node::new(
             "sigmoid".to_string(),
             "Sigmoid".to_string(),

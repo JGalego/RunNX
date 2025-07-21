@@ -4,7 +4,10 @@
 //! Each operator is implemented as a function that takes input tensors
 //! and returns output tensors.
 
-use crate::{tensor::Tensor, error::{OnnxError, Result}};
+use crate::{
+    error::{OnnxError, Result},
+    tensor::Tensor,
+};
 
 /// Supported ONNX operators
 #[derive(Debug, Clone, PartialEq)]
@@ -57,10 +60,10 @@ pub fn execute_operator(
 /// Add operator implementation
 ///
 /// Performs element-wise addition of two tensors.
-/// 
+///
 /// # Arguments
 /// * `inputs` - Array of exactly 2 tensors
-/// 
+///
 /// # Returns
 /// * Single output tensor with element-wise sum
 fn add_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
@@ -78,10 +81,10 @@ fn add_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 /// Multiply operator implementation
 ///
 /// Performs element-wise multiplication of two tensors.
-/// 
+///
 /// # Arguments
 /// * `inputs` - Array of exactly 2 tensors
-/// 
+///
 /// # Returns
 /// * Single output tensor with element-wise product
 fn mul_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
@@ -99,10 +102,10 @@ fn mul_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 /// Matrix multiplication operator implementation
 ///
 /// Performs matrix multiplication of two 2D tensors.
-/// 
+///
 /// # Arguments
 /// * `inputs` - Array of exactly 2 tensors (both must be 2D)
-/// 
+///
 /// # Returns
 /// * Single output tensor with matrix product
 fn matmul_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
@@ -121,10 +124,10 @@ fn matmul_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 ///
 /// Performs a basic 2D convolution operation.
 /// This is a simplified implementation for educational purposes.
-/// 
+///
 /// # Arguments
 /// * `inputs` - Array of 2 tensors: [input, kernel]
-/// 
+///
 /// # Returns
 /// * Single output tensor with convolution result
 fn conv_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
@@ -154,10 +157,10 @@ fn conv_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 /// ReLU operator implementation
 ///
 /// Applies the Rectified Linear Unit function: f(x) = max(0, x)
-/// 
+///
 /// # Arguments
 /// * `inputs` - Array of exactly 1 tensor
-/// 
+///
 /// # Returns
 /// * Single output tensor with ReLU applied element-wise
 fn relu_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
@@ -175,10 +178,10 @@ fn relu_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 /// Sigmoid operator implementation
 ///
 /// Applies the Sigmoid function: f(x) = 1 / (1 + exp(-x))
-/// 
+///
 /// # Arguments
 /// * `inputs` - Array of exactly 1 tensor
-/// 
+///
 /// # Returns
 /// * Single output tensor with Sigmoid applied element-wise
 fn sigmoid_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
@@ -196,10 +199,10 @@ fn sigmoid_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 /// Reshape operator implementation
 ///
 /// Reshapes a tensor to a new shape while preserving the total number of elements.
-/// 
+///
 /// # Arguments
 /// * `inputs` - Array of 2 tensors: [data, shape]
-/// 
+///
 /// # Returns
 /// * Single output tensor with new shape
 fn reshape_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
@@ -214,11 +217,7 @@ fn reshape_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
     let shape_tensor = &inputs[1];
 
     // Extract shape from the second tensor
-    let new_shape: Vec<usize> = shape_tensor
-        .data()
-        .iter()
-        .map(|&x| x as usize)
-        .collect();
+    let new_shape: Vec<usize> = shape_tensor.data().iter().map(|&x| x as usize).collect();
 
     let result = data.reshape(&new_shape)?;
     Ok(vec![result])
@@ -227,10 +226,10 @@ fn reshape_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 /// Transpose operator implementation
 ///
 /// Transposes the input tensor by reversing or permuting the axes.
-/// 
+///
 /// # Arguments
 /// * `inputs` - Array of exactly 1 tensor
-/// 
+///
 /// # Returns
 /// * Single output tensor with transposed dimensions
 fn transpose_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
@@ -268,7 +267,7 @@ mod tests {
 
         let result = execute_operator(&OperatorType::Add, &inputs, &attrs).unwrap();
         assert_eq!(result.len(), 1);
-        
+
         let expected = vec![5.0, 7.0, 9.0];
         for (actual, &expected) in result[0].data().iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
@@ -294,7 +293,7 @@ mod tests {
 
         let result = execute_operator(&OperatorType::Mul, &inputs, &attrs).unwrap();
         assert_eq!(result.len(), 1);
-        
+
         let expected = vec![10.0, 18.0, 28.0];
         for (actual, &expected) in result[0].data().iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
@@ -303,8 +302,12 @@ mod tests {
 
     #[test]
     fn test_matmul_op() {
-        let a = Tensor::from_array(Array2::from_shape_vec((2, 3), vec![1., 2., 3., 4., 5., 6.]).unwrap());
-        let b = Tensor::from_array(Array2::from_shape_vec((3, 2), vec![1., 2., 3., 4., 5., 6.]).unwrap());
+        let a = Tensor::from_array(
+            Array2::from_shape_vec((2, 3), vec![1., 2., 3., 4., 5., 6.]).unwrap(),
+        );
+        let b = Tensor::from_array(
+            Array2::from_shape_vec((3, 2), vec![1., 2., 3., 4., 5., 6.]).unwrap(),
+        );
         let inputs = vec![a, b];
         let attrs = HashMap::new();
 
@@ -321,7 +324,7 @@ mod tests {
 
         let result = execute_operator(&OperatorType::Relu, &inputs, &attrs).unwrap();
         assert_eq!(result.len(), 1);
-        
+
         let expected = vec![0.0, 0.0, 1.0, 2.0];
         for (actual, &expected) in result[0].data().iter().zip(expected.iter()) {
             assert!((actual - expected).abs() < 1e-6);
@@ -336,7 +339,7 @@ mod tests {
 
         let result = execute_operator(&OperatorType::Sigmoid, &inputs, &attrs).unwrap();
         assert_eq!(result.len(), 1);
-        
+
         // Sigmoid of 0 should be 0.5
         assert!((result[0].data()[0] - 0.5).abs() < 1e-6);
     }
