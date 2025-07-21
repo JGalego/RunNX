@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test before release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ubuntu-latest-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Run tests
+      run: cargo test --all-features
+
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ubuntu-latest-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Publish to crates.io
+      run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ubuntu-latest-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build release binaries
+      run: |
+        cargo build --release --bin runnx-runner
+        
+    - name: Create release archive
+      run: |
+        mkdir -p artifacts
+        cp target/release/runnx-runner artifacts/
+        cp README.md LICENSE-MIT LICENSE-APACHE artifacts/
+        tar -czf artifacts/runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz -C artifacts .
+
+    - name: Extract release notes
+      id: extract-release-notes
+      run: |
+        # Extract release notes from CHANGELOG.md or create basic notes
+        if [ -f CHANGELOG.md ]; then
+          echo "Reading release notes from CHANGELOG.md"
+          # This is a simple extraction - you might want to improve this
+          awk '/^## \[/{if(found) exit; found=1; next} found' CHANGELOG.md > release_notes.txt
+        else
+          echo "Release ${{ github.ref_name }}" > release_notes.txt
+          echo "" >> release_notes.txt
+          echo "See [CHANGELOG.md](CHANGELOG.md) for details." >> release_notes.txt
+        fi
+        
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: Release ${{ github.ref_name }}
+        body_path: release_notes.txt
+        draft: false
+        prerelease: false
+
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+        asset_name: runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+        asset_content_type: application/gzip

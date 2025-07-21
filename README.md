@@ -5,6 +5,7 @@ A minimal, verifiable ONNX runtime implementation in Rust.
 [![Crates.io](https://img.shields.io/crates/v/runnx.svg)](https://crates.io/crates/runnx)
 [![Documentation](https://docs.rs/runnx/badge.svg)](https://docs.rs/runnx)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
+[![codecov](https://codecov.io/gh/jgalego/runnx/branch/main/graph/badge.svg)](https://codecov.io/gh/jgalego/runnx)
 
 ## Overview
 
