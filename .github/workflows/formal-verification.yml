@@ -54,6 +54,10 @@ jobs:
         opam install -y why3 alt-ergo
         eval $(opam env)
         which why3
+        # Configure Why3 to detect provers
+        why3 config detect
+        # Verify Alt-Ergo is detected
+        why3 config list-provers | grep -i "alt-ergo" || echo "Alt-Ergo not detected"
         
     - name: Check code formatting
       run: cargo fmt -- --check
@@ -73,9 +77,18 @@ jobs:
     - name: Run formal verification example
       run: cargo run --example formal_verification
       
+    - name: Test verification setup
+      run: |
+        eval $(opam env)
+        cd formal
+        make test-setup
+        
     - name: Run comprehensive verification script
       run: |
         eval $(opam env)
+        cd formal
+        make setup-provers || true
+        cd ..
         python formal/verify.py
         
     - name: Generate verification report

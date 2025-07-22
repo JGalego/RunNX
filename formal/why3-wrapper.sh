@@ -29,15 +29,31 @@ run_why3() {
     fi
 }
 
+# Function to setup Why3 provers
+setup_provers() {
+    echo "🔍 Detecting Why3 provers..."
+    if run_why3 why3 config detect; then
+        echo "✅ Provers detected successfully"
+        echo "📋 Available provers:"
+        run_why3 why3 config list-provers
+    else
+        echo "⚠️ Warning: Could not detect provers automatically"
+    fi
+}
+
 # Main command execution
 case "$1" in
     "check")
         if check_why3; then
             echo "✅ Why3 found"
+            setup_provers
         else
             echo "❌ Why3 not found. Run 'make install-why3' to install it."
             exit 1
         fi
+        ;;
+    "setup")
+        setup_provers
         ;;
     "prove")
         shift
@@ -52,7 +68,7 @@ case "$1" in
         run_why3 why3 ide "$@"
         ;;
     *)
-        echo "Usage: $0 {check|prove|session|ide} [args...]"
+        echo "Usage: $0 {check|setup|prove|session|ide} [args...]"
         exit 1
         ;;
 esac

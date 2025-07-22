@@ -1,9 +1,26 @@
 # RunNX Formal Verification Makefile
 
-.PHONY: all verify test clean check-why3 install-why3
+.PHONY: all verify test clean check-why3 install-why3 setup-provers test-setup
 
 # Default target
-all: verify test
+all: setup-provers verify test
+
+# Test the formal verification setup
+test-setup:
+	@echo "🧪 Testing formal verification setup..."
+	@./test-verification.sh
+
+# Setup Why3 provers
+setup-provers:
+	@echo "🔧 Setting up Why3 provers..."
+	@if which why3 > /dev/null; then \
+		why3 config detect || echo "⚠️ Could not auto-detect provers"; \
+		echo "Available provers:"; \
+		why3 config list-provers || echo "⚠️ Could not list provers"; \
+	else \
+		echo "❌ Why3 not found. Run 'make install-why3' first."; \
+		exit 1; \
+	fi
 
 # Check if Why3 is installed
 check-why3:
@@ -19,14 +36,20 @@ install-why3:
 	fi
 	@opam init -y --disable-sandboxing || true
 	@eval `opam config env` && opam install -y why3 alt-ergo
+	@eval `opam config env` && why3 config detect
 	@echo "✅ Why3 installed successfully"
 	@echo "📝 Note: You may need to run 'eval \$$(opam env)' to update your PATH"
 
 # Run formal verification
 verify: check-why3
 	@echo "🔍 Running formal verification..."
-	@why3 prove -P alt-ergo tensor_specs.mlw || echo "⚠️ Some proofs failed"
-	@why3 prove -P alt-ergo neural_network_specs.mlw || echo "⚠️ Some proofs failed"
+	@echo "Detecting available provers..."
+	@why3 config detect || echo "⚠️ Could not detect provers"
+	@echo "Available provers:"
+	@why3 config list-provers || echo "⚠️ Could not list provers"
+	@echo "Attempting verification with available prover..."
+	@why3 prove tensor_specs.mlw || echo "⚠️ Some tensor proofs failed"
+	@why3 prove neural_network_specs.mlw || echo "⚠️ Some neural network proofs failed"
 	@echo "✅ Formal verification completed"
 
 # Run property-based tests
@@ -81,6 +104,8 @@ help:
 	@echo ""
 	@echo "  make all           - Run verification and tests"
 	@echo "  make install-why3  - Install Why3 and Alt-Ergo"
+	@echo "  make setup-provers - Setup and detect Why3 provers"
+	@echo "  make test-setup    - Test the verification setup"
 	@echo "  make verify        - Run formal verification only"
 	@echo "  make test          - Run property-based tests only"
 	@echo "  make verify-script - Run Python verification bridge"

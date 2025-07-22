@@ -223,6 +223,26 @@ Modify `why3session.xml` to configure:
 
 ## 🚨 Common Issues
 
+### Alt-Ergo Configuration Error
+
+If you get the error "No prover in /home/runner/.why3.conf corresponds to 'alt-ergo'":
+
+```bash
+# Method 1: Detect provers automatically
+why3 config detect
+
+# Method 2: Check available provers
+why3 config list-provers
+
+# Method 3: Manually configure Alt-Ergo (if installed)
+why3 config add-prover alt-ergo /usr/local/bin/alt-ergo
+
+# Method 4: Use any available prover
+why3 prove tensor_specs.mlw  # Without specifying -P alt-ergo
+```
+
+Our verification scripts are designed to gracefully handle missing provers and will automatically detect available ones.
+
 ### Why3 Installation
 
 If Why3 installation fails:
