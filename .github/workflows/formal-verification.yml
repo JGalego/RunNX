@@ -45,9 +45,9 @@ jobs:
         python -m pip install --upgrade pip
         
     - name: Setup OCaml/opam (for Why3)
-      uses: ocaml/setup-ocaml@v2
+      uses: ocaml/setup-ocaml@v3
       with:
-        ocaml-compiler: 4.14.x
+        ocaml-compiler: 5
         
     - name: Install Why3 and theorem provers
       run: |
