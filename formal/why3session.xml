@@ -1,0 +1,29 @@
+[main]
+file = "tensor_specs.mlw"
+file = "neural_network_specs.mlw"
+
+[ide]
+default_editor = ""
+
+[prover]
+name = "Alt-Ergo"
+command = "alt-ergo"
+driver = "alt_ergo"
+
+[prover cvc5]
+name = "CVC5"
+command = "cvc5"
+driver = "cvc5"
+
+[prover z3]
+name = "Z3"
+command = "z3"
+driver = "z3"
+
+[strategy]
+code = "start:
+  t split_goal_wp;
+  t eliminate_algebraic;
+  t eliminate_if;
+  t eliminate_epsilon;
+  g auto_level 1"

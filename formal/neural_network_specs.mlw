@@ -1,0 +1,170 @@
+(** Neural Network Correctness Properties *)
+
+module NeuralNetworkSpecs
+
+  use TensorSpecs
+  use int.Int
+  use real.Real
+  use real.Abs
+  use array.Array
+  use seq.Seq
+
+  (** Neural network layer specification *)
+  type layer = {
+    weights: tensor;
+    bias: tensor;
+    activation: tensor -> tensor;
+  }
+
+  (** Fully connected layer computation *)
+  function fc_layer (input: tensor) (layer: layer) : tensor
+    requires { valid_tensor input }
+    requires { valid_tensor layer.weights }
+    requires { valid_tensor layer.bias }
+    requires { length input.shape = 2 /\ length layer.weights.shape = 2 }
+    requires { input.shape[1] = layer.weights.shape[0] }
+    requires { length layer.bias.shape = 1 }
+    requires { layer.bias.shape[0] = layer.weights.shape[1] }
+    ensures  { valid_tensor result }
+    ensures  { length result.shape = 2 }
+    ensures  { result.shape[0] = input.shape[0] }
+    ensures  { result.shape[1] = layer.weights.shape[1] }
+  = 
+    let matmul_result = matmul_spec input layer.weights in
+    let broadcast_bias = broadcast_to matmul_result.shape layer.bias in
+    let linear_result = add_spec matmul_result broadcast_bias in
+    layer.activation linear_result
+
+  (** Broadcast operation for bias addition *)
+  function broadcast_to (target_shape: seq int) (tensor: tensor) : tensor
+    requires { valid_tensor tensor }
+    requires { length tensor.shape = 1 }
+    requires { length target_shape >= 1 }
+    requires { tensor.shape[0] = target_shape[length target_shape - 1] }
+    ensures  { valid_tensor result }
+    ensures  { result.shape = target_shape }
+
+  (** Numerical stability properties *)
+  predicate numerically_stable (t: tensor) (epsilon: real) =
+    valid_tensor t /\
+    epsilon > 0.0 /\
+    forall i. 0 <= i < length t.data -> 
+      abs t.data[i] < 1.0 / epsilon
+
+  (** Gradient explosion detection *)
+  predicate gradient_bounded (gradient: tensor) (max_norm: real) =
+    valid_tensor gradient /\
+    max_norm > 0.0 /\
+    sqrt (sum_squares gradient.data) <= max_norm
+
+  where sum_squares (arr: array real) : real =
+    sum (fun i -> arr[i] * arr[i]) (0, length arr - 1)
+
+  (** Lipschitz continuity for activation functions *)
+  predicate lipschitz_continuous (f: tensor -> tensor) (L: real) =
+    L >= 0.0 /\
+    forall x y. valid_tensor x -> valid_tensor y -> x.shape = y.shape ->
+    tensor_norm (tensor_sub (f x) (f y)) <= L * tensor_norm (tensor_sub x y)
+
+  where tensor_norm (t: tensor) : real =
+    sqrt (sum_squares t.data)
+
+  and tensor_sub (a b: tensor) : tensor
+    requires { valid_tensor a /\ valid_tensor b }
+    requires { a.shape = b.shape }
+    ensures  { valid_tensor result }
+    ensures  { result.shape = a.shape }
+
+  (** ReLU is Lipschitz continuous with L = 1 *)
+  lemma relu_lipschitz:
+    lipschitz_continuous relu_spec 1.0
+
+  (** Sigmoid is Lipschitz continuous with L = 0.25 *)
+  lemma sigmoid_lipschitz:
+    lipschitz_continuous sigmoid_spec 0.25
+
+  (** Forward pass correctness *)
+  function forward_pass (input: tensor) (layers: seq layer) : tensor
+    requires { valid_tensor input }
+    requires { length layers > 0 }
+    requires { forall i. 0 <= i < length layers -> 
+               valid_tensor layers[i].weights /\ valid_tensor layers[i].bias }
+    ensures  { valid_tensor result }
+    variant  { length layers }
+  =
+    if length layers = 1 then
+      fc_layer input layers[0]
+    else
+      let intermediate = fc_layer input layers[0] in
+      forward_pass intermediate (layers[1..])
+
+  (** Network output bounds *)
+  lemma bounded_output:
+    forall input layers. valid_tensor input -> length layers > 0 ->
+    (forall i. 0 <= i < length layers -> 
+     layers[i].activation = sigmoid_spec) ->
+    let output = forward_pass input layers in
+    forall j. 0 <= j < length output.data -> 
+    0.0 < output.data[j] < 1.0
+
+  (** Input perturbation stability *)
+  lemma input_stability:
+    forall input1 input2 layers epsilon. 
+    valid_tensor input1 -> valid_tensor input2 ->
+    input1.shape = input2.shape ->
+    tensor_norm (tensor_sub input1 input2) <= epsilon ->
+    (forall i. 0 <= i < length layers -> 
+     lipschitz_continuous layers[i].activation 1.0) ->
+    let output1 = forward_pass input1 layers in
+    let output2 = forward_pass input2 layers in
+    tensor_norm (tensor_sub output1 output2) <= 
+    network_lipschitz_constant layers * epsilon
+
+  where network_lipschitz_constant (layers: seq layer) : real
+    ensures { result >= 1.0 }
+
+end
+
+module ConvolutionSpecs
+
+  use TensorSpecs
+  use int.Int
+  use real.Real
+  use seq.Seq
+
+  (** Convolution operation specification *)
+  function conv2d_spec (input: tensor) (kernel: tensor) (stride: int) (padding: int) : tensor
+    requires { valid_tensor input /\ valid_tensor kernel }
+    requires { length input.shape = 4 }  (* [batch, channels, height, width] *)
+    requires { length kernel.shape = 4 } (* [out_channels, in_channels, height, width] *)
+    requires { input.shape[1] = kernel.shape[1] } (* channels match *)
+    requires { stride > 0 }
+    requires { padding >= 0 }
+    ensures  { valid_tensor result }
+    ensures  { length result.shape = 4 }
+    ensures  { result.shape[0] = input.shape[0] } (* batch size preserved *)
+    ensures  { result.shape[1] = kernel.shape[0] } (* output channels *)
+
+  (** Convolution properties *)
+  lemma conv_translation_invariance:
+    forall input kernel stride padding shift_x shift_y.
+    valid_tensor input -> valid_tensor kernel ->
+    let shifted_input = translate_input input shift_x shift_y in
+    let conv_original = conv2d_spec input kernel stride padding in
+    let conv_shifted = conv2d_spec shifted_input kernel stride padding in
+    conv_shifted = translate_output conv_original shift_x shift_y stride
+
+  where translate_input (t: tensor) (dx dy: int) : tensor
+    requires { valid_tensor t }
+    requires { length t.shape = 4 }
+    ensures  { valid_tensor result }
+    ensures  { result.shape = t.shape }
+
+  and translate_output (t: tensor) (dx dy stride: int) : tensor
+    requires { valid_tensor t }
+    requires { length t.shape = 4 }
+    requires { stride > 0 }
+    ensures  { valid_tensor result }
+    ensures  { result.shape = t.shape }
+
+end

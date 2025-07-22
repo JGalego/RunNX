@@ -44,6 +44,7 @@
 //! The main error type is [`OnnxError`] which covers various failure modes.
 
 pub mod error;
+pub mod formal;
 pub mod graph;
 pub mod model;
 pub mod operators;

@@ -1,29 +1,33 @@
 # RunNX
 
-A minimal, verifiable ONNX runtime implementation in Rust.
+A minimal, **mathematically verifiable** ONNX runtime implementation in Rust.
 
 [![Crates.io](https://img.shields.io/crates/v/runnx.svg)](https://crates.io/crates/runnx)
 [![Documentation](https://docs.rs/runnx/badge.svg)](https://docs.rs/runnx)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/jgalego/runnx/actions/workflows/ci.yml/badge.svg)](https://github.com/jgalego/runnx/actions/workflows/ci.yml)
+[![Formal Verification](https://github.com/jgalego/runnx/actions/workflows/formal-verification.yml/badge.svg)](https://github.com/jgalego/runnx/actions/workflows/formal-verification.yml)
 [![codecov](https://codecov.io/gh/jgalego/runnx/branch/main/graph/badge.svg)](https://codecov.io/gh/jgalego/runnx)
 
 ![RunNX](runnx.jpg)
 
 ## Overview
 
-> Fast, fearless, and fully verifiable ONNX in Rust.
+> Fast, fearless, and **formally verified** ONNX in Rust.
 
 This project provides a minimal, educational ONNX runtime implementation focused on:
 - **Simplicity**: Easy to understand and modify
-- **Verifiability**: Clear, testable code with comprehensive documentation
+- **Verifiability**: **Formal mathematical verification** using Why3 and property-based testing
 - **Performance**: Efficient operations using ndarray
-- **Safety**: Memory-safe Rust implementation
+- **Safety**: Memory-safe Rust implementation with mathematical guarantees
 
 ## Features
 
 - ✅ Basic tensor operations (`Add`, `Mul`, `MatMul`, `Conv`, &c.)
-- ✅ Model loading and validation
+- ✅ **Formal mathematical specifications** with Why3
+- ✅ **Property-based testing** for mathematical correctness
+- ✅ **Runtime invariant verification**
+- ✅ Model loading and validation  
 - ✅ Inference execution
 - ✅ Error handling and logging
 - ✅ Benchmarking support
@@ -172,6 +176,86 @@ Example benchmark results:
 - Basic operations: ~10-50 µs
 - Small model inference: ~100-500 µs
 - Medium model inference: ~1-10 ms
+
+## Formal Verification
+
+RunNX includes comprehensive formal verification capabilities to ensure mathematical correctness:
+
+### 🔬 Mathematical Specifications
+
+The runtime includes formal specifications for all tensor operations using Why3:
+
+```why3
+(** Addition operation specification *)
+function add_spec (a b: tensor) : tensor
+  requires { valid_tensor a /\ valid_tensor b }
+  requires { a.shape = b.shape }
+  ensures  { valid_tensor result }
+  ensures  { result.shape = a.shape }
+  ensures  { forall i. 0 <= i < length result.data ->
+             result.data[i] = a.data[i] + b.data[i] }
+```
+
+### 🧪 Property-Based Testing
+
+Automatic verification of mathematical properties:
+
+```rust
+use runnx::formal::contracts::{AdditionContracts, ActivationContracts};
+
+// Test addition commutativity: a + b = b + a
+let result1 = tensor_a.add_with_contracts(&tensor_b)?;
+let result2 = tensor_b.add_with_contracts(&tensor_a)?;
+assert_eq!(result1.data(), result2.data());
+
+// Test ReLU idempotency: ReLU(ReLU(x)) = ReLU(x)  
+let relu_once = tensor.relu_with_contracts()?;
+let relu_twice = relu_once.relu_with_contracts()?;
+assert_eq!(relu_once.data(), relu_twice.data());
+```
+
+### 🔍 Runtime Verification
+
+Dynamic checking of invariants during execution:
+
+```rust
+use runnx::formal::runtime_verification::InvariantMonitor;
+
+let monitor = InvariantMonitor::new();
+let result = tensor.add(&other)?;
+
+// Verify numerical stability and bounds
+assert!(monitor.verify_operation(&[&tensor, &other], &[&result]));
+```
+
+### 🎯 Verified Properties
+
+The formal verification system proves:
+
+- **Addition**: Commutativity, associativity, identity
+- **Matrix Multiplication**: Associativity, distributivity  
+- **ReLU**: Idempotency, monotonicity, non-negativity
+- **Sigmoid**: Boundedness (0, 1), monotonicity, symmetry
+- **Numerical Stability**: Overflow/underflow prevention
+
+### 📊 Running Formal Verification
+
+```bash
+# Install Why3 (optional, for complete formal proofs)
+make -C formal install-why3
+
+# Run all verification (tests + proofs)
+make -C formal all
+
+# Run only property-based tests (no Why3 required)
+cargo test formal --lib
+
+# Run verification example
+cargo run --example formal_verification
+
+# Generate verification report  
+make -C formal report
+```
 
 ## Development
 
