@@ -1,0 +1,45 @@
+# RunNX Rust formatting configuration
+# This file configures rustfmt for consistent code style
+# Uses only stable features to work with stable Rust
+
+# Edition to use for formatting
+edition = "2021"
+
+# Maximum width of each line
+max_width = 100
+
+# Maximum width of the args of a function call before falling back to vertical formatting
+fn_params_layout = "Tall"
+
+# Maximum width of a chain to fit on a single line
+chain_width = 60
+
+# Maximum width of an array literal before falling back to vertical formatting
+array_width = 60
+
+# Maximum width of a struct literal before falling back to vertical formatting
+struct_lit_width = 18
+
+# Maximum width of a struct variant before falling back to vertical formatting
+struct_variant_width = 35
+
+# Use field init shorthand if possible
+use_field_init_shorthand = true
+
+# Use small heuristics to improve readability
+use_small_heuristics = "Default"
+
+# Reorder imports
+reorder_imports = true
+
+# Reorder modules
+reorder_modules = true
+
+# Put a trailing comma after a block based match arm (non-block arms are not affected)
+match_block_trailing_comma = false
+
+# Number of spaces per tab
+tab_spaces = 4
+
+# Use tabs for indentation, spaces for alignment
+hard_tabs = false

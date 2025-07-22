@@ -20,12 +20,13 @@ install-why3:
 	@opam init -y --disable-sandboxing || true
 	@eval `opam config env` && opam install -y why3 alt-ergo
 	@echo "✅ Why3 installed successfully"
+	@echo "📝 Note: You may need to run 'eval \$$(opam env)' to update your PATH"
 
 # Run formal verification
 verify: check-why3
 	@echo "🔍 Running formal verification..."
-	@cd formal && why3 prove -P alt-ergo tensor_specs.mlw || echo "⚠️ Some proofs failed"
-	@cd formal && why3 prove -P alt-ergo neural_network_specs.mlw || echo "⚠️ Some proofs failed"
+	@why3 prove -P alt-ergo tensor_specs.mlw || echo "⚠️ Some proofs failed"
+	@why3 prove -P alt-ergo neural_network_specs.mlw || echo "⚠️ Some proofs failed"
 	@echo "✅ Formal verification completed"
 
 # Run property-based tests
@@ -37,13 +38,13 @@ test:
 # Run the verification script
 verify-script:
 	@echo "🐍 Running Python verification bridge..."
-	@cd formal && python3 verify.py
+	@python3 verify.py
 
 # Generate Why3 HTML report
 report: check-why3
 	@echo "📊 Generating verification report..."
-	@cd formal && why3 session html .
-	@echo "📁 Report generated in formal/_why3session/"
+	@why3 session html . || echo "⚠️ Report generation failed"
+	@echo "📁 Report generated in _why3session/"
 
 # Run static analysis
 lint:
@@ -65,14 +66,14 @@ full-verify: lint verify test bench
 clean:
 	@echo "🧹 Cleaning up..."
 	@cargo clean
-	@rm -rf formal/_why3session/
-	@rm -rf formal/__pycache__/
+	@rm -rf _why3session/
+	@rm -rf __pycache__/
 	@echo "✅ Cleanup completed"
 
 # Interactive Why3 IDE
 ide: check-why3
 	@echo "🚀 Starting Why3 IDE..."
-	@cd formal && why3 ide tensor_specs.mlw
+	@why3 ide tensor_specs.mlw
 
 # Help target
 help:

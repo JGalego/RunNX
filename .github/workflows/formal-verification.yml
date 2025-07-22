@@ -81,7 +81,7 @@ jobs:
     - name: Generate verification report
       if: always()
       run: |
-        eval $(opam env) 
+        eval $(opam env)
         cd formal
         make report || true
         

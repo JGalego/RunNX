@@ -24,9 +24,9 @@ This project provides a minimal, educational ONNX runtime implementation focused
 ## Features
 
 - ✅ Basic tensor operations (`Add`, `Mul`, `MatMul`, `Conv`, &c.)
-- ✅ **Formal mathematical specifications** with Why3
-- ✅ **Property-based testing** for mathematical correctness
-- ✅ **Runtime invariant verification**
+- ✅ Formal mathematical specifications with Why3
+- ✅ Property-based testing for mathematical correctness
+- ✅ Runtime invariant verification
 - ✅ Model loading and validation  
 - ✅ Inference execution
 - ✅ Error handling and logging
@@ -284,12 +284,38 @@ cargo doc --document-private-items
 
 ### Contributing
 
+We welcome contributions! Please follow our development quality standards:
+
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
+3. Make your changes following our [Development QA Guidelines](docs/DEVELOPMENT_QA.md)
 4. Add tests and documentation
-5. Run `cargo test` and `cargo bench`
-6. Submit a pull request
+5. Run quality checks: `./scripts/quality-check.sh`
+6. Commit your changes (pre-commit hooks will run automatically)
+7. Submit a pull request
+
+#### Development Quality Assurance
+
+RunNX uses automated quality assurance tools to maintain code quality:
+
+- **Pre-commit hooks**: Automatically run formatting, linting, and tests before each commit
+- **Code formatting**: Consistent style enforced by `rustfmt`
+- **Linting**: Comprehensive checks with `clippy` (warnings treated as errors)
+- **Comprehensive testing**: Unit tests, integration tests, property-based tests, and doc tests
+- **Build verification**: Ensures all code compiles successfully
+
+For detailed information, see [Development QA Guidelines](docs/DEVELOPMENT_QA.md).
+
+To run quality checks manually:
+```bash
+# Run all quality checks with auto-fixes
+./scripts/quality-check.sh
+
+# Or run individual checks
+cargo fmt           # Format code
+cargo clippy        # Run linting
+cargo test          # Run all tests
+```
 
 ## License
 
