@@ -26,8 +26,12 @@ Pull requests are the best way to propose changes to the codebase. We actively w
 ## Development Setup
 
 1. Install Rust: https://rustup.rs/
-2. Clone the repository
-3. Run `cargo test` to run the test suite
+2. Install Protocol Buffers compiler:
+   - Ubuntu/Debian: `sudo apt-get install protobuf-compiler`
+   - macOS: `brew install protobuf`  
+   - Windows: `choco install protoc`
+3. Clone the repository
+4. Run `cargo test` to run the test suite
 4. Run `cargo bench` to run benchmarks
 5. Run `cargo doc --open` to build and view documentation
 

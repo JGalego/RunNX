@@ -39,6 +39,21 @@ This project provides a minimal, educational ONNX runtime implementation focused
 
 ## Quick Start
 
+### Prerequisites
+
+RunNX requires the Protocol Buffers compiler (`protoc`) to build:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install protobuf-compiler
+
+# macOS  
+brew install protobuf
+
+# Windows
+choco install protoc
+```
+
 ### Installation
 
 Add this to your `Cargo.toml`:
