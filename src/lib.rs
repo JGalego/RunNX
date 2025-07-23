@@ -43,11 +43,13 @@
 //! All operations return [`Result`] types with descriptive error messages.
 //! The main error type is [`OnnxError`] which covers various failure modes.
 
+pub mod converter;
 pub mod error;
 pub mod formal;
 pub mod graph;
 pub mod model;
 pub mod operators;
+pub mod proto;
 pub mod runtime;
 pub mod tensor;
 

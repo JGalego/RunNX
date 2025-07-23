@@ -70,17 +70,17 @@ pub struct TensorSpec {
     /// Name of the tensor
     pub name: String,
     /// Shape of the tensor (None for dynamic dimensions)
-    pub shape: Vec<Option<usize>>,
+    pub dimensions: Vec<Option<usize>>,
     /// Data type (simplified to f32 for this implementation)
     pub dtype: String,
 }
 
 impl TensorSpec {
     /// Create a new tensor specification
-    pub fn new(name: String, shape: Vec<Option<usize>>) -> Self {
+    pub fn new(name: String, dimensions: Vec<Option<usize>>) -> Self {
         Self {
             name,
-            shape,
+            dimensions,
             dtype: "float32".to_string(),
         }
     }
@@ -89,11 +89,11 @@ impl TensorSpec {
     pub fn matches_tensor(&self, tensor: &Tensor) -> bool {
         let tensor_shape = tensor.shape();
 
-        if self.shape.len() != tensor_shape.len() {
+        if self.dimensions.len() != tensor_shape.len() {
             return false;
         }
 
-        for (spec_dim, &tensor_dim) in self.shape.iter().zip(tensor_shape.iter()) {
+        for (spec_dim, &tensor_dim) in self.dimensions.iter().zip(tensor_shape.iter()) {
             match spec_dim {
                 Some(expected) => {
                     if *expected != tensor_dim {
