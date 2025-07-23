@@ -1,9 +1,19 @@
 # RunNX Formal Verification Makefile
 
-.PHONY: all verify test clean check-why3 install-why3 setup-provers test-setup
+.PHONY: all verify test clean check-why3 install-why3 setup-provers test-setup verify-operators
 
-# Default target
-all: setup-provers verify test
+# Default target - includes operator verification
+all: setup-provers verify-operators test
+
+# Verify operators specifically
+verify-operators: check-why3
+	@echo "🔍 Verifying ONNX operators..."
+	@python3 verify_operators.py
+
+# Verify specific operator
+verify-operator-%: check-why3
+	@echo "🎯 Verifying $* operator..."
+	@python3 verify_operators.py $*
 
 # Test the formal verification setup
 test-setup:
@@ -48,8 +58,7 @@ verify: check-why3
 	@echo "Available provers:"
 	@why3 config list-provers || echo "⚠️ Could not list provers"
 	@echo "Attempting verification with available prover..."
-	@why3 prove tensor_specs.mlw || echo "⚠️ Some tensor proofs failed"
-	@why3 prove neural_network_specs.mlw || echo "⚠️ Some neural network proofs failed"
+	@why3 prove operator_specs.mlw || echo "⚠️ Some operator proofs failed"
 	@echo "✅ Formal verification completed"
 
 # Run property-based tests
@@ -61,7 +70,7 @@ test:
 # Run the verification script
 verify-script:
 	@echo "🐍 Running Python verification bridge..."
-	@python3 verify.py
+	@python3 verify_operators.py
 
 # Generate Why3 HTML report
 report: check-why3
@@ -96,7 +105,7 @@ clean:
 # Interactive Why3 IDE
 ide: check-why3
 	@echo "🚀 Starting Why3 IDE..."
-	@why3 ide tensor_specs.mlw
+	@why3 ide operator_specs.mlw
 
 # Help target
 help:

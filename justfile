@@ -150,9 +150,17 @@ bench-inference:
 formal-test:
     cd formal && ./test-verification.sh
 
-# Run formal verification (requires Why3)
+# Run formal verification of operators (requires Why3)
 formal-verify:
-    cd formal && make verify
+    cd formal && make verify-operators
+
+# Verify a specific operator (e.g., `just formal-verify-operator add`)
+formal-verify-operator operator:
+    cd formal && make verify-operator-{{operator}}
+
+# Build and test with formal verification contracts enabled
+formal-contracts:
+    cargo test --features formal-verification
 
 # Setup formal verification environment
 formal-setup:
@@ -163,7 +171,7 @@ formal-install:
     cd formal && make install-why3
 
 # Run all formal verification tasks
-formal: formal-test formal-verify
+formal: formal-test formal-verify formal-contracts
 
 # === Development Commands ===
 

@@ -96,7 +96,7 @@ jobs:
         cd formal
         make setup-provers || true
         cd ..
-        python formal/verify.py
+        python3 formal/verify_operators.py
         
     - name: Generate verification report
       if: always()
