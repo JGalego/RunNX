@@ -38,9 +38,11 @@ We use standard Rust formatting. Please run `cargo fmt` before submitting.
 ## Testing
 
 - Write unit tests for new functions
-- Write integration tests for new features
+- Write integration tests for new features  
 - Add benchmarks for performance-critical code
+- Test both JSON and ONNX binary format compatibility for model-related changes
 - Ensure all tests pass with `cargo test`
+- Run format compatibility tests: `cargo run --example onnx_demo`
 
 ## Documentation
 

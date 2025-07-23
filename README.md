@@ -23,7 +23,9 @@ This project provides a minimal, educational ONNX runtime implementation focused
 
 ## Features
 
-- ✅ Basic tensor operations (`Add`, `Mul`, `MatMul`, `Conv`, &c.)
+- ✅ Dual Format Support: JSON and binary ONNX protobuf formats
+- ✅ Auto-detection: Automatic format detection based on file extension
+- ✅ Basic tensor operations (`Add`, `Mul`, `MatMul`, `Conv`, `Relu`, `Sigmoid`, `Reshape`, `Transpose`)
 - ✅ Formal mathematical specifications with Why3
 - ✅ Property-based testing for mathematical correctness
 - ✅ Runtime invariant verification
@@ -51,8 +53,11 @@ runnx = "0.1.0"
 ```rust
 use runnx::{Model, Tensor};
 
-// Load a model
-let model = Model::from_file("model.onnx")?;
+// Load a model (supports both JSON and ONNX binary formats)  
+let model = Model::from_file("model.onnx")?;  // Auto-detects format
+// Or explicitly:
+// let model = Model::from_onnx_file("model.onnx")?;  // Binary ONNX
+// let model = Model::from_json_file("model.json")?;  // JSON format
 
 // Create input tensor
 let input = Tensor::from_array(ndarray::array![[1.0, 2.0, 3.0]]);
@@ -65,11 +70,25 @@ let result = outputs.get("output").unwrap();
 println!("Result: {:?}", result.data());
 ```
 
+### Saving Models
+
+```rust
+use runnx::Model;
+
+let model = /* ... create or load model ... */;
+
+// Save in different formats
+model.to_file("output.onnx")?;    // Auto-detects format from extension  
+model.to_onnx_file("binary.onnx")?;  // Explicit binary ONNX format
+model.to_json_file("readable.json")?;  // Explicit JSON format
+```
+
 ### Command Line Usage
 
 ```bash
-# Run inference on a model
+# Run inference on a model (supports both .onnx and .json files)
 cargo run --bin runnx-runner -- --model model.onnx --input input.json
+cargo run --bin runnx-runner -- --model model.json --input input.json
 
 # Run with async support
 cargo run --features async --bin runnx-runner -- --model model.onnx --input input.json
@@ -87,6 +106,32 @@ The runtime is organized into several key components:
 - **Operators**: Implementation of ONNX operations
 - **Runtime**: Execution engine with optimizations
 
+### File Format Support
+
+RunNX supports both JSON and binary ONNX protobuf formats:
+
+#### 📄 JSON Format
+- **Human-readable**: Easy to inspect and debug
+- **Text-based**: Can be viewed and edited in any text editor
+- **Larger file size**: More verbose due to text representation
+- **Extension**: `.json`
+
+#### 🔧 Binary ONNX Format  
+- **Standard format**: Official ONNX protobuf serialization
+- **Compact**: Smaller file sizes due to binary encoding
+- **Interoperable**: Compatible with other ONNX runtime implementations
+- **Extension**: `.onnx`
+
+#### 🎯 Auto-Detection
+The `Model::from_file()` method automatically detects the format based on file extension:
+- `.onnx` files → Binary ONNX protobuf format
+- `.json` files → JSON format  
+- Other extensions → Attempts JSON parsing as fallback
+
+For explicit control, use:
+- `Model::from_onnx_file()` for binary ONNX files
+- `Model::from_json_file()` for JSON files
+
 ### Supported Operators
 
 | Operator      | Status   | Notes                       |
@@ -101,6 +146,63 @@ The runtime is organized into several key components:
 | `Transpose`   | ✅      | Tensor transposition         |
 
 ## Examples
+
+### Format Compatibility Demo
+
+```rust
+use runnx::*;
+
+fn main() -> runnx::Result<()> {
+    // Create a simple model
+    let mut graph = graph::Graph::new("demo_graph".to_string());
+    
+    // Add input/output specifications
+    let input_spec = graph::TensorSpec::new("input".to_string(), vec![Some(1), Some(4)]);
+    let output_spec = graph::TensorSpec::new("output".to_string(), vec![Some(1), Some(4)]);
+    graph.add_input(input_spec);
+    graph.add_output(output_spec);
+    
+    // Add a ReLU node
+    let relu_node = graph::Node::new(
+        "relu_1".to_string(),
+        "Relu".to_string(), 
+        vec!["input".to_string()],
+        vec!["output".to_string()],
+    );
+    graph.add_node(relu_node);
+    
+    let model = model::Model::with_metadata(
+        model::ModelMetadata {
+            name: "demo_model".to_string(),
+            version: "1.0".to_string(),
+            description: "A simple ReLU demo model".to_string(),
+            producer: "RunNX Demo".to_string(),
+            onnx_version: "1.9.0".to_string(),
+            domain: "".to_string(),
+        },
+        graph,
+    );
+
+    // Save in both formats
+    model.to_json_file("demo_model.json")?;
+    model.to_onnx_file("demo_model.onnx")?;
+    
+    // Load from both formats
+    let json_model = model::Model::from_json_file("demo_model.json")?;
+    let onnx_model = model::Model::from_onnx_file("demo_model.onnx")?;
+    
+    // Auto-detection also works
+    let auto_json = model::Model::from_file("demo_model.json")?;
+    let auto_onnx = model::Model::from_file("demo_model.onnx")?;
+    
+    println!("✅ All formats loaded successfully!");
+    println!("Original: {}", model.name());
+    println!("JSON: {}", json_model.name());
+    println!("ONNX: {}", onnx_model.name());
+    
+    Ok(())
+}
+```
 
 ### Simple Linear Model
 
@@ -130,6 +232,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 ### Model Loading and Inference
+
+```bash
+# Format compatibility demonstration
+cargo run --example onnx_demo
+
+# Format conversion between JSON and ONNX binary
+cargo run --example format_conversion
+
+# Simple model operations
+cargo run --example simple_model
+
+# Formal verification examples
+cargo run --example formal_verification
+
+# Tensor operations
+cargo run --example tensor_ops
+```
 
 ```rust
 use runnx::{Model, Tensor};
@@ -333,6 +452,14 @@ This project is licensed under
 
 ## Roadmap
 
+### ✅ Completed
+- [x] **Dual Format Support**: Both JSON and binary ONNX protobuf formats
+- [x] **Auto-detection**: Automatic format detection based on file extension  
+- [x] **Core Operators**: Add, Mul, MatMul, Conv, ReLU, Sigmoid, Reshape, Transpose
+- [x] **Formal Verification**: Mathematical specifications with Why3
+- [x] **CLI Tool**: Command-line runner for model inference
+
+### 🚧 Planned
 - [ ] Add more operators (Softmax, BatchNorm, etc.)
 - [ ] GPU acceleration support
 - [ ] Quantization support

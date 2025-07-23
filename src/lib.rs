@@ -5,6 +5,8 @@
 //!
 //! ## Key Features
 //!
+//! - **Dual Format Support**: Both JSON and binary ONNX protobuf formats
+//! - **Auto-detection**: Automatic format detection based on file extension
 //! - **Simple Architecture**: Easy to understand and extend
 //! - **Type Safety**: Leverages Rust's type system for memory safety
 //! - **Performance**: Efficient tensor operations using ndarray
@@ -17,6 +19,10 @@
 //! use ndarray::Array2;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // Load a model (supports both JSON and ONNX binary formats)
+//! // let model = Model::from_file("model.onnx")?;  // Auto-detects format
+//! // let model = Model::from_file("model.json")?;  // Auto-detects format
+//!
 //! // Create a simple tensor
 //! let input = Tensor::from_array(Array2::from_elem((2, 3), 1.0));
 //! let weights = Tensor::from_array(Array2::from_elem((3, 4), 0.5));
@@ -24,6 +30,32 @@
 //! // Perform matrix multiplication
 //! let result = input.matmul(&weights)?;
 //! println!("Result shape: {:?}", result.shape());
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Format Support
+//!
+//! RunNX supports both formats with automatic detection:
+//!
+//! - **JSON Format** (`.json`): Human-readable, easy to debug
+//! - **ONNX Binary** (`.onnx`): Compact, standard ONNX protobuf format
+//!
+//! ```rust
+//! use runnx::Model;
+//!
+//! # fn example() -> runnx::Result<()> {
+//! // Auto-detection based on extension
+//! let json_model = Model::from_file("model.json")?;
+//! let onnx_model = Model::from_file("model.onnx")?;
+//!
+//! // Explicit format specification  
+//! let json_model = Model::from_json_file("model.json")?;
+//! let onnx_model = Model::from_onnx_file("model.onnx")?;
+//!
+//! // Save in different formats
+//! json_model.to_onnx_file("converted.onnx")?;
+//! onnx_model.to_json_file("converted.json")?;
 //! # Ok(())
 //! # }
 //! ```
