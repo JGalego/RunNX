@@ -393,11 +393,60 @@ make -C formal report
 
 ## Development
 
+### Quick Development with Justfile
+
+RunNX includes a [Justfile](justfile) with convenient shortcuts for common development tasks:
+
+```bash
+# Install just command runner (one time setup)
+cargo install just
+
+# Show all available commands
+just --list
+
+# Quick development cycle
+just dev          # Format, lint, and test
+just test         # Run all tests
+just build        # Build the project
+just examples     # Run all examples
+
+# Code quality
+just format       # Format code
+just lint         # Run clippy
+just quality      # Run quality check script
+
+# Documentation  
+just docs-open    # Build and open docs
+
+# Benchmarks
+just bench        # Run benchmarks
+
+# Formal verification
+just formal-test  # Test formal verification setup
+
+# CI simulation
+just ci          # Simulate CI checks locally
+```
+
+**Alternatively**, if you don't have `just` installed, use the included shell script:
+
+```bash
+# Show all available commands
+./dev.sh help
+
+# Quick development cycle
+./dev.sh dev      # Format, lint, and test
+./dev.sh test     # Run all tests  
+./dev.sh examples # Run all examples
+```
+
 ### Running Tests
 
 ```bash
 # Run all tests
 cargo test
+# or with just
+just test
 
 # Run tests with logging
 RUST_LOG=debug cargo test
@@ -411,6 +460,8 @@ cargo test test_tensor_operations
 ```bash
 # Build and open documentation
 cargo doc --open
+# or with just  
+just docs-open
 
 # Build with private items
 cargo doc --document-private-items

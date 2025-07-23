@@ -80,6 +80,40 @@ We use GitHub issues to track public bugs. Report a bug by [opening a new issue]
 * Follow Rust naming conventions
 * Add comprehensive documentation for public APIs
 
+## Development Tools
+
+RunNX provides convenient development tools to streamline your workflow:
+
+### Using Justfile (Recommended)
+```bash
+# Install just (one time)
+cargo install just
+
+# Quick development cycle
+just dev           # Format, lint, and test
+just quality       # Run comprehensive quality checks  
+just examples      # Run all examples
+just ci            # Simulate CI locally
+```
+
+### Using dev.sh Script (Alternative)
+```bash
+# No installation required
+./dev.sh dev       # Quick development cycle
+./dev.sh quality   # Run comprehensive quality checks
+./dev.sh examples  # Run all examples  
+./dev.sh ci        # Simulate CI locally
+```
+
+### Manual Commands
+```bash
+# Individual quality checks
+cargo fmt           # Format code
+cargo clippy        # Run linting
+cargo test          # Run all tests
+./scripts/quality-check.sh  # Full quality check script
+```
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under its MIT/Apache-2.0 License.
