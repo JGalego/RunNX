@@ -505,6 +505,7 @@ mod converter_tests {
 
     #[test]
     fn test_load_save_onnx_model() {
+        use std::env;
         use std::fs;
 
         // Create a simple model
@@ -525,13 +526,16 @@ mod converter_tests {
         graph.add_node(node);
 
         let model = Model::new(graph);
-        let test_path = "/tmp/test_converter.onnx";
+
+        // Use platform-independent temporary directory
+        let temp_dir = env::temp_dir();
+        let test_path = temp_dir.join("test_converter.onnx");
 
         // Test save
-        save_onnx_model(&model, test_path).expect("Failed to save ONNX model");
+        save_onnx_model(&model, &test_path).expect("Failed to save ONNX model");
 
         // Test load
-        let loaded_model = load_onnx_model(test_path).expect("Failed to load ONNX model");
+        let loaded_model = load_onnx_model(&test_path).expect("Failed to load ONNX model");
 
         // Verify loaded model
         assert_eq!(model.graph.name, loaded_model.graph.name);
@@ -540,7 +544,7 @@ mod converter_tests {
         assert_eq!(model.graph.outputs.len(), loaded_model.graph.outputs.len());
 
         // Cleanup
-        let _ = fs::remove_file(test_path);
+        let _ = fs::remove_file(&test_path);
     }
 
     #[test]
