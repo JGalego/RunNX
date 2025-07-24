@@ -129,20 +129,52 @@ if [[ "${COVERAGE_VERBOSE:-0}" == "1" ]]; then
     echo ""
 fi
 
-# Build cargo llvm-cov command
-CARGO_ARGS=(
-    "llvm-cov"
-    "--all-features"
-    "--workspace"
-)
+# Build cargo llvm-cov command with deduplication
+build_cargo_args() {
+    local args=("llvm-cov" "--all-features")
+    local user_args=("$@")
+    
+    # Default arguments to add if not provided by user
+    local default_args=("--workspace")
+    
+    # Add exclusion pattern if we have one
+    if [[ -n "$EXCLUSION_PATTERN" ]]; then
+        default_args+=("--ignore-filename-regex=$EXCLUSION_PATTERN")
+    fi
+    
+    # Check which default args are already in user args
+    for default_arg in "${default_args[@]}"; do
+        local found=false
+        
+        # Extract the argument name (before = if present)
+        local default_arg_name="${default_arg%%=*}"
+        
+        for user_arg in "${user_args[@]}"; do
+            # Extract the argument name from user arg
+            local user_arg_name="${user_arg%%=*}"
+            
+            # Check if this argument name is already provided by user
+            if [[ "$user_arg_name" == "$default_arg_name" ]]; then
+                found=true
+                break
+            fi
+        done
+        
+        # Add default arg only if not found in user args
+        if [[ "$found" == "false" ]]; then
+            args+=("$default_arg")
+        fi
+    done
+    
+    # Add all user arguments
+    args+=("${user_args[@]}")
+    
+    # Return the args array
+    printf '%s\n' "${args[@]}"
+}
 
-# Add exclusion pattern if we have one
-if [[ -n "$EXCLUSION_PATTERN" ]]; then
-    CARGO_ARGS+=("--ignore-filename-regex=$EXCLUSION_PATTERN")
-fi
-
-# Add user-provided arguments
-CARGO_ARGS+=("$@")
+# Build the command arguments
+readarray -t CARGO_ARGS < <(build_cargo_args "$@")
 
 # Run coverage
 if [[ "${COVERAGE_VERBOSE:-0}" == "1" ]]; then
