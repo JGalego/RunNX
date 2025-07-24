@@ -1,4 +1,4 @@
-# Formal Verification for RunNX // Work in Progress 🚧
+# Formal Verification for RunNX
 
 This directory contains formal specifications and verification tools for the RunNX ONNX runtime, making it mathematically verifiable using formal methods.
 
@@ -15,11 +15,11 @@ The formal verification setup provides:
 
 ```
 formal/
-├── tensor_specs.mlw           # Why3 specifications for tensor operations
-├── neural_network_specs.mlw   # Why3 specifications for neural networks
-├── verify.py                  # Python bridge for verification
+├── operator_specs.mlw         # Why3 specifications for ONNX operators
+├── verify_operators.py        # Python bridge for verification
 ├── Makefile                   # Automation scripts
-├── why3session.xml           # Why3 project configuration
+├── test-verification.sh       # Shell script for testing verification
+├── why3-wrapper.sh           # Why3 execution wrapper
 └── README.md                 # This file
 ```
 
@@ -69,6 +69,7 @@ Our specifications cover:
 - **Activation functions**: ReLU (idempotency, monotonicity) and Sigmoid (boundedness)
 - **Shape operations**: Reshape and transpose with invariant preservation
 - **Numerical stability**: Bounds checking and overflow prevention
+- **YOLO operators**: Softmax, Concat, Slice, Upsample, MaxPool, NonMaxSuppression with probability and shape guarantees
 
 ### Mathematical Properties Verified
 
@@ -91,6 +92,18 @@ Our specifications cover:
 - **Monotonicity**: `x < y ⇒ σ(x) < σ(y)`
 - **Symmetry**: `σ(-x) = 1 - σ(x)`
 
+#### Softmax Activation (YOLO)
+- **Probability distribution**: `∑ softmax(x)[i] = 1.0`
+- **Boundedness**: `∀i: 0 < softmax(x)[i] < 1`
+- **Numerical stability**: `softmax(x) = softmax(x - max(x))`
+
+#### YOLO Object Detection Operators
+- **Concatenation**: Shape preservation and data integrity
+- **Slicing**: Bounds checking and subset properties
+- **Upsampling**: Scale factor validation and shape scaling
+- **MaxPooling**: Monotonicity preservation
+- **Non-Maximum Suppression**: Score ordering and IoU threshold guarantees
+
 ## 🧪 Property-Based Testing
 
 The verification includes extensive property-based tests using the `proptest` crate:
@@ -110,6 +123,45 @@ proptest! {
         let result2 = tensor_b.add(&tensor_a).unwrap();
         
         assert_eq!(result1.data(), result2.data());
+    }
+}
+
+// Example: Test YOLO softmax probability distribution
+proptest! {
+    #[test]
+    fn test_softmax_probability_distribution(
+        data in prop::collection::vec(prop::num::f32::NORMAL, 1..20)
+    ) {
+        if let Ok(tensor) = Tensor::from_shape_vec(&[data.len()], data) {
+            if let Ok(softmax_result) = tensor.softmax() {
+                // Test 1: Sum should equal 1.0
+                let sum: f32 = softmax_result.data().iter().sum();
+                prop_assert!((sum - 1.0).abs() < 1e-5);
+                
+                // Test 2: All values should be positive and < 1.0
+                for &value in softmax_result.data().iter() {
+                    prop_assert!(value > 0.0 && value < 1.0);
+                }
+            }
+        }
+    }
+}
+
+// Example: Test YOLO softmax numerical stability
+proptest! {
+    #[test]
+    fn test_softmax_numerical_stability(
+        data in prop::collection::vec(prop::num::f32::NORMAL, 1..10),
+        shift in prop::num::f32::NORMAL
+    ) {
+        // Softmax should be invariant under constant shifts
+        let softmax1 = tensor.softmax().unwrap();
+        let shifted_tensor = apply_constant_shift(&tensor, shift);
+        let softmax2 = shifted_tensor.softmax().unwrap();
+        
+        for (a, b) in softmax1.data().iter().zip(softmax2.data().iter()) {
+            prop_assert!((a - b).abs() < 1e-5);
+        }
     }
 }
 ```
@@ -144,6 +196,16 @@ impl AdditionContracts for Tensor {
         // Implementation with pre/post condition checks
     }
 }
+
+impl YoloOperatorContracts for Tensor {
+    // @requires: true (no preconditions)
+    // @ensures: result.shape() == self.shape()
+    // @ensures: sum(result.data()) == 1.0 (probability distribution)
+    // @ensures: forall i: 0 < result[i] < 1
+    fn softmax_with_contracts(&self) -> Result<Tensor> {
+        // Implementation with probability distribution verification
+    }
+}
 ```
 
 ### Debug Assertions
@@ -174,8 +236,8 @@ The setup supports multiple theorem provers:
 Generate verification conditions:
 
 ```bash
-why3 prove -P alt-ergo tensor_specs.mlw
-why3 prove -P z3 neural_network_specs.mlw
+why3 prove -P alt-ergo operator_specs.mlw
+why3 prove -P z3 operator_specs.mlw
 ```
 
 ### Interactive Proofs
@@ -216,10 +278,10 @@ monitor.epsilon = 1e-6;            // Set numerical tolerance
 
 ### Why3 Settings
 
-Modify `why3session.xml` to configure:
-- Theorem prover preferences
-- Proof strategies
-- Timeout settings
+Configure Why3 provers through command-line options:
+- Theorem prover preferences (`-P alt-ergo`, `-P z3`)
+- Proof strategies (`--strategy`)
+- Timeout settings (`--timeout`)
 
 ## 🚨 Common Issues
 
@@ -238,7 +300,7 @@ why3 config list-provers
 why3 config add-prover alt-ergo /usr/local/bin/alt-ergo
 
 # Method 4: Use any available prover
-why3 prove tensor_specs.mlw  # Without specifying -P alt-ergo
+why3 prove operator_specs.mlw  # Without specifying -P alt-ergo
 ```
 
 Our verification scripts are designed to gracefully handle missing provers and will automatically detect available ones.

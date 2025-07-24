@@ -466,7 +466,7 @@ function add_spec (a b: tensor) : tensor
 Automatic verification of mathematical properties:
 
 ```rust
-use runnx::formal::contracts::{AdditionContracts, ActivationContracts};
+use runnx::formal::contracts::{AdditionContracts, ActivationContracts, YoloOperatorContracts};
 
 // Test addition commutativity: a + b = b + a
 let result1 = tensor_a.add_with_contracts(&tensor_b)?;
@@ -477,6 +477,11 @@ assert_eq!(result1.data(), result2.data());
 let relu_once = tensor.relu_with_contracts()?;
 let relu_twice = relu_once.relu_with_contracts()?;
 assert_eq!(relu_once.data(), relu_twice.data());
+
+// Test Softmax probability distribution: sum = 1.0
+let softmax_result = tensor.softmax_with_contracts()?;
+let sum: f32 = softmax_result.data().iter().sum();
+assert!((sum - 1.0).abs() < 1e-6);
 ```
 
 ### 🔍 Runtime Verification
