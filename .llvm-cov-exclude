@@ -1,0 +1,19 @@
+# RunNX Code Coverage Exclusion Configuration
+# This file contains patterns for files/directories to exclude from code coverage analysis
+#
+# Reasons for exclusion:
+# - Auto-generated files (protobuf, build scripts)
+# - Binary entry points with minimal logic
+# - Test utilities and mock implementations
+#
+# Format: One file pattern per line, supports glob patterns
+#
+
+# Auto-generated protobuf definitions
+src/onnx.rs
+
+# Binary entry points (CLI applications)
+src/bin/runner.rs
+
+# Build scripts and generated code
+build.rs

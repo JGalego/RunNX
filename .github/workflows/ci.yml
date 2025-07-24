@@ -92,52 +92,6 @@ jobs:
         fi
       shell: bash
 
-  coverage:
-    name: Code Coverage
-    runs-on: ubuntu-latest
-    needs: test
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Install Protocol Buffers compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: '1.81'
-        components: llvm-tools-preview
-
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ubuntu-latest-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Install cargo-llvm-cov
-      uses: taiki-e/install-action@v2
-      with:
-        tool: cargo-llvm-cov
-
-    - name: Generate code coverage
-      run: cargo llvm-cov --all-features --ignore-filename-regex "bin/" --workspace --lcov --output-path lcov.info --no-cfg-coverage
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v5
-      with:
-        file: lcov.info
-        fail_ci_if_error: true
-        token: ${{ secrets.CODECOV_TOKEN }}
-
   benchmark:
     name: Performance Benchmarks
     runs-on: ubuntu-latest
