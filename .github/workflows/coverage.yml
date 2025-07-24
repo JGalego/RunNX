@@ -115,6 +115,7 @@ jobs:
           - \`src/onnx.rs\` (auto-generated protobuf bindings)
           - \`src/bin/runner.rs\` (CLI entry point)
           - \`build.rs\` (build script)
+          - \`src/formal.rs\` (formal specification module)
           
           This report was generated using our custom coverage script with configuration-based exclusions.`;
           

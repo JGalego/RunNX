@@ -9,11 +9,14 @@
 # Format: One file pattern per line, supports glob patterns
 #
 
-# Auto-generated protobuf definitions
+# Auto-generated protobuf bindings
 src/onnx.rs
 
-# Binary entry points (CLI applications)
+# CLI binary entry point 
 src/bin/runner.rs
 
-# Build scripts and generated code
+# Build script
 build.rs
+
+# Formal specification and verification module
+src/formal.rs
