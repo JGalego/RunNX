@@ -10,6 +10,15 @@ repository = "https://github.com/JGalego/runnx"
 readme = "README.md"
 keywords = ["onnx", "machine-learning", "neural-network", "runtime", "inference"]
 categories = ["science", "mathematics", "algorithms"]
+include = [
+    "src/**/*",
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE-*",
+    "CHANGELOG.md",
+    "third_party/onnx/onnx/onnx.proto",
+]
 
 [dependencies]
 # Core dependencies
