@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [unreleased]
+
+### Bug Fixes
+
+- Resolve GitHub release workflow tar error
+
+### Features
+
+- Added formal verification 🧮
+- ONNX binary support
+- Added formal operator verification
+
 ## [0.1.1] - 2025-07-24
 
 ### ✨ Features
