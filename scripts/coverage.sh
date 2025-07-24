@@ -131,11 +131,11 @@ fi
 
 # Build cargo llvm-cov command with deduplication
 build_cargo_args() {
-    local args=("llvm-cov" "--all-features")
+    local args=("llvm-cov")
     local user_args=("$@")
     
     # Default arguments to add if not provided by user
-    local default_args=("--workspace")
+    local default_args=("--all-features" "--workspace")
     
     # Add exclusion pattern if we have one
     if [[ -n "$EXCLUSION_PATTERN" ]]; then
