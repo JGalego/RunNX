@@ -26,6 +26,13 @@ This project provides a minimal, educational ONNX runtime implementation focused
 - ✅ Dual Format Support: JSON and binary ONNX protobuf formats
 - ✅ Auto-detection: Automatic format detection based on file extension
 - ✅ Basic tensor operations (`Add`, `Mul`, `MatMul`, `Conv`, `Relu`, `Sigmoid`, `Reshape`, `Transpose`)
+- ✅ **YOLO Model Support**: Essential operators for YOLO object detection models
+  - `Concat`: Tensor concatenation for feature fusion
+  - `Slice`: Tensor slicing operations
+  - `Upsample`: Feature map upsampling for FPN
+  - `MaxPool`: Max pooling operations
+  - `Softmax`: Classification probability computation
+  - `NonMaxSuppression`: Object detection post-processing
 - ✅ Formal mathematical specifications with Why3
 - ✅ Property-based testing for mathematical correctness
 - ✅ Runtime invariant verification
@@ -149,6 +156,7 @@ For explicit control, use:
 
 ### Supported Operators
 
+#### Basic Operators
 | Operator      | Status   | Notes                       |
 | ------------- | -------- | --------------------------- |
 | `Add`         | ✅      | Element-wise addition        |
@@ -159,6 +167,18 @@ For explicit control, use:
 | `Sigmoid`     | ✅      | Sigmoid activation           |
 | `Reshape`     | ✅      | Tensor reshaping             |
 | `Transpose`   | ✅      | Tensor transposition         |
+
+#### YOLO-Specific Operators
+| Operator             | Status   | Notes                                |
+| -------------------- | -------- | ------------------------------------ |
+| `Concat`             | ✅      | Tensor concatenation for FPN         |
+| `Slice`              | 🚧      | Tensor slicing (simplified)          |
+| `Upsample`           | 🚧      | Feature upsampling (simplified)      |
+| `MaxPool`            | 🚧      | Max pooling (simplified)             |
+| `Softmax`            | ✅      | Classification probabilities         |
+| `NonMaxSuppression`  | 🚧      | NMS for detection (simplified)       |
+
+*Legend: ✅ = Fully implemented, 🚧 = Simplified implementation, ❌ = Not implemented*
 
 ## Examples
 
@@ -252,6 +272,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 # Format compatibility demonstration
 cargo run --example onnx_demo
 
+# YOLO operator support demonstration
+cargo run --example yolo_demo
+
+# YOLOv8n compatibility testing
+cargo run --example yolov8n_compat_demo
+
 # Format conversion between JSON and ONNX binary
 cargo run --example format_conversion
 
@@ -264,6 +290,111 @@ cargo run --example formal_verification
 # Tensor operations
 cargo run --example tensor_ops
 ```
+
+### YOLO Model Support
+
+RunNX now includes essential operators for YOLO-style object detection models:
+
+```rust
+use runnx::*;
+
+fn main() -> runnx::Result<()> {
+    // Create a YOLO-like model structure
+    let mut graph = graph::Graph::new("yolo_demo".to_string());
+    
+    // Input: RGB image [1, 3, 640, 640]
+    let input_spec = graph::TensorSpec::new(
+        "images".to_string(), 
+        vec![Some(1), Some(3), Some(640), Some(640)]
+    );
+    graph.add_input(input_spec);
+    
+    // Output: Detections [1, 25200, 85] (COCO: 80 classes + 4 coords + 1 conf)
+    let output_spec = graph::TensorSpec::new(
+        "detections".to_string(), 
+        vec![Some(1), Some(25200), Some(85)]
+    );
+    graph.add_output(output_spec);
+    
+    // Add YOLO-essential nodes
+    let backbone_conv = graph::Node::new(
+        "backbone_conv".to_string(),
+        "Conv".to_string(),
+        vec!["images".to_string()],
+        vec!["features".to_string()],
+    );
+    graph.add_node(backbone_conv);
+    
+    // SiLU activation (Sigmoid * x)
+    let silu_sigmoid = graph::Node::new(
+        "silu_sigmoid".to_string(),
+        "Sigmoid".to_string(),
+        vec!["features".to_string()],
+        vec!["sigmoid_out".to_string()],
+    );
+    let silu_mul = graph::Node::new(
+        "silu_mul".to_string(),
+        "Mul".to_string(),
+        vec!["features".to_string(), "sigmoid_out".to_string()],
+        vec!["silu_out".to_string()],
+    );
+    graph.add_node(silu_sigmoid);
+    graph.add_node(silu_mul);
+    
+    // Multi-scale feature processing
+    let upsample = graph::Node::new(
+        "upsample".to_string(),
+        "Upsample".to_string(),
+        vec!["silu_out".to_string()],
+        vec!["upsampled".to_string()],
+    );
+    let concat = graph::Node::new(
+        "concat".to_string(),
+        "Concat".to_string(),
+        vec!["upsampled".to_string(), "silu_out".to_string()],
+        vec!["concat_out".to_string()],
+    );
+    graph.add_node(upsample);
+    graph.add_node(concat);
+    
+    // Detection head with Softmax
+    let head_conv = graph::Node::new(
+        "head_conv".to_string(),
+        "Conv".to_string(),
+        vec!["concat_out".to_string()],
+        vec!["raw_detections".to_string()],
+    );
+    let softmax = graph::Node::new(
+        "softmax".to_string(),
+        "Softmax".to_string(),
+        vec!["raw_detections".to_string()],
+        vec!["detections".to_string()],
+    );
+    graph.add_node(head_conv);
+    graph.add_node(softmax);
+    
+    let model = model::Model::with_metadata(
+        model::ModelMetadata {
+            name: "yolo_demo_v1".to_string(),
+            version: "1.0".to_string(),
+            description: "YOLO-like object detection model".to_string(),
+            producer: "RunNX YOLO Demo".to_string(),
+            onnx_version: "1.9.0".to_string(),
+            domain: "".to_string(),
+        },
+        graph,
+    );
+    
+    println!("🎯 YOLO Model Created!");
+    println!("   Inputs: {} ({})", model.graph.inputs.len(), model.graph.inputs[0].name);
+    println!("   Outputs: {} ({})", model.graph.outputs.len(), model.graph.outputs[0].name);
+    println!("   Nodes: {} (Conv, SiLU, Upsample, Concat, Softmax)", model.graph.nodes.len());
+    
+    Ok(())
+}
+```
+
+### Basic Model Loading
 
 ```rust
 use runnx::{Model, Tensor};

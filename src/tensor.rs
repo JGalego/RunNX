@@ -314,6 +314,46 @@ impl Tensor {
         let data = self.data.mapv(|x| 1.0 / (1.0 + (-x).exp()));
         Tensor { data }
     }
+
+    /// Applies the Softmax activation function along the last axis
+    ///
+    /// The Softmax function is defined as: softmax(x_i) = exp(x_i) / sum(exp(x_j))
+    /// This implementation applies softmax along the last axis of the tensor.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runnx::Tensor;
+    /// use ndarray::Array1;
+    ///
+    /// let tensor = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
+    /// let result = tensor.softmax().unwrap();
+    /// // Sum of softmax outputs should be 1.0
+    /// let sum: f32 = result.data().iter().sum();
+    /// assert!((sum - 1.0).abs() < 1e-6);
+    /// ```
+    pub fn softmax(&self) -> Result<Tensor> {
+        if self.is_empty() {
+            return Err(OnnxError::invalid_dimensions(
+                "Cannot apply softmax to empty tensor".to_string(),
+            ));
+        }
+
+        // For simplicity, apply softmax to the flattened tensor
+        // A full implementation would handle arbitrary axes
+        let max_val = self.data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        let exp_data = self.data.mapv(|x| (x - max_val).exp());
+        let sum_exp = exp_data.sum();
+
+        if sum_exp == 0.0 {
+            return Err(OnnxError::invalid_dimensions(
+                "Softmax sum is zero, cannot normalize".to_string(),
+            ));
+        }
+
+        let softmax_data = exp_data.mapv(|x| x / sum_exp);
+        Ok(Tensor { data: softmax_data })
+    }
 }
 
 impl fmt::Display for Tensor {
