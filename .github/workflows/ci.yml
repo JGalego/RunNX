@@ -282,6 +282,11 @@ jobs:
         cat .llvm-cov-exclude | grep -v '^#' | grep -v '^$' | sed 's/^/  - /'
         echo ""
 
+    - name: Build runner binary for CLI tests
+      run: |
+        echo "🔨 Building runner binary for CLI tests..."
+        cargo build --bin runnx-runner
+        
     - name: Run comprehensive coverage analysis
       run: |
         echo "🧪 Running all tests with coverage..."
