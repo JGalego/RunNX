@@ -16,6 +16,13 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Protocol Buffers compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -40,6 +47,13 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Protocol Buffers compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -64,6 +78,11 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        # Ensure we get the full history for proper release notes
+        fetch-depth: 0
+        # Ensure clean checkout
+        clean: true
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -79,14 +98,33 @@ jobs:
 
     - name: Build release binaries
       run: |
-        cargo build --release --bin runnx-runner
+        # Clean any previous builds to avoid conflicts
+        cargo clean
+        # Build with explicit target for consistency
+        cargo build --release --bin runnx-runner --locked
+        # Verify the binary was created
+        ls -la target/release/runnx-runner
         
     - name: Create release archive
       run: |
         mkdir -p artifacts
+        # Copy binary
         cp target/release/runnx-runner artifacts/
+        # Copy documentation and licenses
         cp README.md LICENSE-MIT LICENSE-APACHE artifacts/
-        tar -czf artifacts/runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz -C artifacts .
+        # Create archive from the artifacts directory only
+        cd artifacts
+        tar -czf ../runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz *
+        cd ..
+        mv runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz artifacts/
+        
+    - name: Verify release archive
+      run: |
+        # List archive contents to verify
+        echo "Archive contents:"
+        tar -tzf artifacts/runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+        # Check archive size
+        ls -lh artifacts/runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
 
     - name: Extract release notes
       id: extract-release-notes
@@ -103,22 +141,13 @@ jobs:
         fi
         
     - name: Create GitHub Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.ref_name }}
-        release_name: Release ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
         body_path: release_notes.txt
+        files: artifacts/runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
         draft: false
         prerelease: false
-
-    - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: artifacts/runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
-        asset_name: runnx-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
-        asset_content_type: application/gzip

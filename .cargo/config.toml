@@ -1,0 +1,5 @@
+[llvm-cov]
+# Exclude binary targets from coverage
+exclude-bin-targets = ["runner"]
+# Or alternatively, include only library targets
+include-targets = ["runnx"]

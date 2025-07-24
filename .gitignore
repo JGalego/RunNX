@@ -23,6 +23,7 @@ Thumbs.db
 # Test artifacts
 /test-results/
 simple_model.json
+*.onnx
 
 # Benchmarks
 /benches/target/

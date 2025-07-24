@@ -1,0 +1,198 @@
+theory OperatorSpecs
+  use int.Int
+  use real.Real
+  use array.Array
+
+  (* Type definitions for tensors *)
+  type shape = array int
+  type tensor_data = array real
+  
+  type tensor = {
+    shape: shape;
+    data: tensor_data;
+    size: int;
+  }
+
+  (* Predicates for tensor validity *)
+  predicate valid_tensor (t: tensor) =
+    t.size >= 0 /\
+    length t.shape >= 1 /\
+    length t.data = t.size
+
+  predicate same_shape (t1 t2: tensor) =
+    length t1.shape = length t2.shape /\
+    forall i. 0 <= i < length t1.shape -> t1.shape[i] = t2.shape[i]
+
+  predicate broadcastable (t1 t2: tensor) =
+    (* Simplified broadcasting: either same shape or one is scalar *)
+    same_shape t1 t2 \/ t1.size = 1 \/ t2.size = 1
+
+  (* Addition operator specification *)
+  function add_element (a b: real) : real = a + b
+
+  predicate add_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    (input1.size = input2.size -> same_shape input2 output) /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = add_element input1.data[i] input2.data[i]
+
+  (* Properties of addition *)
+  lemma add_commutativity:
+    forall t1 t2 result1 result2: tensor.
+    add_spec t1 t2 result1 /\ add_spec t2 t1 result2 ->
+    forall i. 0 <= i < result1.size -> result1.data[i] = result2.data[i]
+
+  lemma add_associativity:
+    forall a b c ab_c a_bc: tensor.
+    (exists ab. add_spec a b ab /\ add_spec ab c ab_c) /\
+    (exists bc. add_spec b c bc /\ add_spec a bc a_bc) ->
+    forall i. 0 <= i < ab_c.size -> ab_c.data[i] = a_bc.data[i]
+
+  (* Multiplication operator specification *)
+  function mul_element (a b: real) : real = a * b
+
+  predicate mul_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    (input1.size = input2.size -> same_shape input2 output) /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = mul_element input1.data[i] input2.data[i]
+
+  (* Properties of multiplication *)
+  lemma mul_commutativity:
+    forall t1 t2 result1 result2: tensor.
+    mul_spec t1 t2 result1 /\ mul_spec t2 t1 result2 ->
+    forall i. 0 <= i < result1.size -> result1.data[i] = result2.data[i]
+
+  lemma mul_associativity:
+    forall a b c ab_c a_bc: tensor.
+    (exists ab. mul_spec a b ab /\ mul_spec ab c ab_c) /\
+    (exists bc. mul_spec b c bc /\ mul_spec a bc a_bc) ->
+    forall i. 0 <= i < ab_c.size -> ab_c.data[i] = a_bc.data[i]
+
+  (* Matrix multiplication specification *)
+  predicate matrix_compatible (t1 t2: tensor) =
+    length t1.shape = 2 /\
+    length t2.shape = 2 /\
+    t1.shape[1] = t2.shape[0]
+
+  function matmul_element (t1 t2: tensor) (i j: int) : real =
+    let rec sum_product (k: int) : real =
+      if k < 0 then 0.0
+      else 
+        let idx1 = i * t1.shape[1] + k in
+        let idx2 = k * t2.shape[1] + j in
+        t1.data[idx1] * t2.data[idx2] + sum_product (k - 1)
+    in
+    sum_product (t1.shape[1] - 1)
+
+  predicate matmul_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    matrix_compatible input1 input2 /\
+    length output.shape = 2 /\
+    output.shape[0] = input1.shape[0] /\
+    output.shape[1] = input2.shape[1] /\
+    output.size = output.shape[0] * output.shape[1] /\
+    forall i j. 0 <= i < output.shape[0] /\ 0 <= j < output.shape[1] ->
+      let idx = i * output.shape[1] + j in
+      output.data[idx] = matmul_element input1 input2 i j
+
+  (* ReLU activation function specification *)
+  function relu_element (x: real) : real =
+    if x >= 0.0 then x else 0.0
+
+  predicate relu_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = relu_element input.data[i]
+
+  (* Properties of ReLU *)
+  lemma relu_non_negative:
+    forall input output: tensor.
+    relu_spec input output ->
+    forall i. 0 <= i < output.size -> output.data[i] >= 0.0
+
+  lemma relu_idempotent:
+    forall input output1 output2: tensor.
+    relu_spec input output1 /\ relu_spec output1 output2 ->
+    forall i. 0 <= i < output1.size -> output1.data[i] = output2.data[i]
+
+  lemma relu_monotonic:
+    forall input1 input2 output1 output2: tensor.
+    same_shape input1 input2 /\
+    relu_spec input1 output1 /\ relu_spec input2 output2 /\
+    (forall i. 0 <= i < input1.size -> input1.data[i] <= input2.data[i]) ->
+    forall i. 0 <= i < output1.size -> output1.data[i] <= output2.data[i]
+
+  (* Sigmoid activation function specification *)
+  function sigmoid_element (x: real) : real =
+    1.0 / (1.0 + exp (-x))
+
+  predicate sigmoid_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = sigmoid_element input.data[i]
+
+  (* Properties of Sigmoid *)
+  lemma sigmoid_bounded:
+    forall input output: tensor.
+    sigmoid_spec input output ->
+    forall i. 0 <= i < output.size -> 
+      0.0 < output.data[i] < 1.0
+
+  lemma sigmoid_monotonic:
+    forall input1 input2 output1 output2: tensor.
+    same_shape input1 input2 /\
+    sigmoid_spec input1 output1 /\ sigmoid_spec input2 output2 /\
+    (forall i. 0 <= i < input1.size -> input1.data[i] < input2.data[i]) ->
+    forall i. 0 <= i < output1.size -> output1.data[i] < output2.data[i]
+
+  (* Transpose operation specification *)
+  predicate transpose_2d_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    length input.shape = 2 /\
+    length output.shape = 2 /\
+    input.shape[0] = output.shape[1] /\
+    input.shape[1] = output.shape[0] /\
+    input.size = output.size /\
+    forall i j. 0 <= i < input.shape[0] /\ 0 <= j < input.shape[1] ->
+      let input_idx = i * input.shape[1] + j in
+      let output_idx = j * output.shape[0] + i in
+      output.data[output_idx] = input.data[input_idx]
+
+  (* Properties of Transpose *)
+  lemma transpose_involution:
+    forall input intermediate output: tensor.
+    transpose_2d_spec input intermediate /\ 
+    transpose_2d_spec intermediate output ->
+    forall i. 0 <= i < input.size -> input.data[i] = output.data[i]
+
+  (* Reshape operation specification *)
+  predicate reshape_spec (input output: tensor) (new_shape: shape) =
+    valid_tensor input /\
+    valid_tensor output /\
+    input.size = output.size /\
+    output.shape = new_shape /\
+    forall i. 0 <= i < input.size -> input.data[i] = output.data[i]
+
+  (* Properties of Reshape *)
+  lemma reshape_preserves_data:
+    forall input output: tensor, new_shape: shape.
+    reshape_spec input output new_shape ->
+    forall i. 0 <= i < input.size -> input.data[i] = output.data[i]
+
+end

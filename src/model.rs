@@ -70,19 +70,49 @@ impl Model {
         Self { metadata, graph }
     }
 
-    /// Load a model from file (simplified JSON format for this implementation)
+    /// Load a model from file (supports both JSON and binary ONNX formats)
     ///
-    /// In a full ONNX implementation, this would parse the protobuf format.
-    /// For simplicity, we use JSON serialization.
+    /// This method automatically detects the file format:
+    /// - Files with .onnx extension are treated as binary ONNX protobuf format
+    /// - Files with .json extension are treated as JSON format
+    /// - Other files are treated as JSON format by default
     ///
     /// # Examples
     /// ```no_run
     /// use runnx::Model;
     ///
+    /// // Load from JSON format
     /// let model = Model::from_file("model.json").unwrap();
+    /// println!("Loaded model: {}", model.name());
+    ///
+    /// // Load from binary ONNX format
+    /// let model = Model::from_file("model.onnx").unwrap();
     /// println!("Loaded model: {}", model.name());
     /// ```
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
+
+        // Determine format based on file extension
+        if let Some(extension) = path.extension() {
+            if extension == "onnx" {
+                return Self::from_onnx_file(path);
+            }
+        }
+
+        // Default to JSON format
+        Self::from_json_file(path)
+    }
+
+    /// Load a model from JSON file format
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use runnx::Model;
+    ///
+    /// let model = Model::from_json_file("model.json").unwrap();
+    /// println!("Loaded model: {}", model.name());
+    /// ```
+    pub fn from_json_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let content = fs::read_to_string(path).map_err(|e| {
             OnnxError::model_load_error(format!(
@@ -94,7 +124,7 @@ impl Model {
 
         let model: Model = serde_json::from_str(&content).map_err(|e| {
             OnnxError::model_load_error(format!(
-                "Failed to parse model file '{}': {}",
+                "Failed to parse JSON model file '{}': {}",
                 path.display(),
                 e
             ))
@@ -106,7 +136,25 @@ impl Model {
         Ok(model)
     }
 
-    /// Save the model to file (JSON format)
+    /// Load a model from binary ONNX protobuf file format
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use runnx::Model;
+    ///
+    /// let model = Model::from_onnx_file("model.onnx").unwrap();
+    /// println!("Loaded model: {}", model.name());
+    /// ```
+    pub fn from_onnx_file<P: AsRef<Path>>(path: P) -> Result<Self> {
+        crate::converter::load_onnx_model(path)
+    }
+
+    /// Save the model to file (supports both JSON and binary ONNX formats)
+    ///
+    /// This method automatically detects the file format based on extension:
+    /// - Files with .onnx extension are saved as binary ONNX protobuf format
+    /// - Files with .json extension are saved as JSON format
+    /// - Other files are saved as JSON format by default
     ///
     /// # Examples
     /// ```no_run
@@ -114,19 +162,62 @@ impl Model {
     ///
     /// let graph = Graph::create_simple_linear();
     /// let model = Model::new(graph);
+    ///
+    /// // Save as JSON
     /// model.to_file("model.json").unwrap();
+    ///
+    /// // Save as binary ONNX
+    /// model.to_file("model.onnx").unwrap();
     /// ```
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let path = path.as_ref();
+
+        // Determine format based on file extension
+        if let Some(extension) = path.extension() {
+            if extension == "onnx" {
+                return self.to_onnx_file(path);
+            }
+        }
+
+        // Default to JSON format
+        self.to_json_file(path)
+    }
+
+    /// Save the model to JSON file format
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use runnx::{Model, Graph};
+    ///
+    /// let graph = Graph::create_simple_linear();
+    /// let model = Model::new(graph);
+    /// model.to_json_file("model.json").unwrap();
+    /// ```
+    pub fn to_json_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
         let content = serde_json::to_string_pretty(self)?;
 
         fs::write(path, content).map_err(|e| {
             OnnxError::other(format!(
-                "Failed to write model file '{}': {}",
+                "Failed to write JSON model file '{}': {}",
                 path.display(),
                 e
             ))
         })
+    }
+
+    /// Save the model to binary ONNX protobuf file format
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use runnx::{Model, Graph};
+    ///
+    /// let graph = Graph::create_simple_linear();
+    /// let model = Model::new(graph);
+    /// model.to_onnx_file("model.onnx").unwrap();
+    /// ```
+    pub fn to_onnx_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        crate::converter::save_onnx_model(self, path)
     }
 
     /// Get the model name
@@ -263,7 +354,7 @@ impl Model {
         for input_spec in &self.graph.inputs {
             summary.push_str(&format!(
                 "  - {}: {:?} ({})\n",
-                input_spec.name, input_spec.shape, input_spec.dtype
+                input_spec.name, input_spec.dimensions, input_spec.dtype
             ));
         }
         summary.push('\n');
@@ -272,7 +363,7 @@ impl Model {
         for output_spec in &self.graph.outputs {
             summary.push_str(&format!(
                 "  - {}: {:?} ({})\n",
-                output_spec.name, output_spec.shape, output_spec.dtype
+                output_spec.name, output_spec.dimensions, output_spec.dtype
             ));
         }
         summary.push('\n');
@@ -516,7 +607,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("Failed to write model file"));
+            .contains("Failed to write JSON model file"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "runnx"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.81"
 description = "A minimal, verifiable ONNX runtime implementation in Rust"
@@ -17,22 +17,29 @@ ndarray = { version = "0.16", features = ["serde"] }
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-protobuf = "3.3"
+prost = "0.13"
 log = "0.4"
 env_logger = "0.11"
 
 # Optional features
 tokio = { version = "1.0", features = ["full"], optional = true }
 
+[build-dependencies]
+prost-build = "0.13"
+
 [dev-dependencies]
 env_logger = "0.11"
 criterion = { version = "0.6", features = ["html_reports"] }
 tempfile = "3.8"
 tokio = { version = "1.0", features = ["macros", "rt"] }
+proptest = "1.4"
+
+# Note: For code coverage, run `./scripts/coverage.sh` to exclude auto-generated files
 
 [features]
 default = []
 async = ["tokio"]
+formal-verification = []  # Enable formal verification checks and contracts
 
 [[bench]]
 name = "inference_benchmark"

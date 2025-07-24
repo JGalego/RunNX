@@ -163,7 +163,7 @@ impl Runtime {
             if !input_spec.matches_tensor(tensor) {
                 return Err(OnnxError::shape_mismatch(
                     &input_spec
-                        .shape
+                        .dimensions
                         .iter()
                         .map(|dim| dim.unwrap_or(0))
                         .collect::<Vec<_>>(),
@@ -487,7 +487,7 @@ mod tests {
         let input_spec = crate::graph::TensorSpec {
             name: "input".to_string(),
             dtype: "float32".to_string(),
-            shape: vec![Some(1), Some(3)],
+            dimensions: vec![Some(1), Some(3)],
         };
         graph.add_input(input_spec);
 
@@ -512,7 +512,7 @@ mod tests {
         let input_spec = crate::graph::TensorSpec {
             name: "input".to_string(),
             dtype: "float32".to_string(),
-            shape: vec![Some(1), Some(2)],
+            dimensions: vec![Some(1), Some(2)],
         };
         graph.add_input(input_spec);
 
@@ -520,7 +520,7 @@ mod tests {
         let output_spec = crate::graph::TensorSpec {
             name: "output".to_string(),
             dtype: "float32".to_string(),
-            shape: vec![Some(1), Some(2)],
+            dimensions: vec![Some(1), Some(2)],
         };
         graph.add_output(output_spec);
 

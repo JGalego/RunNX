@@ -26,8 +26,12 @@ Pull requests are the best way to propose changes to the codebase. We actively w
 ## Development Setup
 
 1. Install Rust: https://rustup.rs/
-2. Clone the repository
-3. Run `cargo test` to run the test suite
+2. Install Protocol Buffers compiler:
+   - Ubuntu/Debian: `sudo apt-get install protobuf-compiler`
+   - macOS: `brew install protobuf`  
+   - Windows: `choco install protoc`
+3. Clone the repository
+4. Run `cargo test` to run the test suite
 4. Run `cargo bench` to run benchmarks
 5. Run `cargo doc --open` to build and view documentation
 
@@ -38,9 +42,11 @@ We use standard Rust formatting. Please run `cargo fmt` before submitting.
 ## Testing
 
 - Write unit tests for new functions
-- Write integration tests for new features
+- Write integration tests for new features  
 - Add benchmarks for performance-critical code
+- Test both JSON and ONNX binary format compatibility for model-related changes
 - Ensure all tests pass with `cargo test`
+- Run format compatibility tests: `cargo run --example onnx_demo`
 
 ## Documentation
 
@@ -73,6 +79,40 @@ We use GitHub issues to track public bugs. Report a bug by [opening a new issue]
 * Use `cargo clippy` for linting
 * Follow Rust naming conventions
 * Add comprehensive documentation for public APIs
+
+## Development Tools
+
+RunNX provides convenient development tools to streamline your workflow:
+
+### Using Justfile (Recommended)
+```bash
+# Install just (one time)
+cargo install just
+
+# Quick development cycle
+just dev           # Format, lint, and test
+just quality       # Run comprehensive quality checks  
+just examples      # Run all examples
+just ci            # Simulate CI locally
+```
+
+### Using dev.sh Script (Alternative)
+```bash
+# No installation required
+./dev.sh dev       # Quick development cycle
+./dev.sh quality   # Run comprehensive quality checks
+./dev.sh examples  # Run all examples  
+./dev.sh ci        # Simulate CI locally
+```
+
+### Manual Commands
+```bash
+# Individual quality checks
+cargo fmt           # Format code
+cargo clippy        # Run linting
+cargo test          # Run all tests
+./scripts/quality-check.sh  # Full quality check script
+```
 
 ## License
 

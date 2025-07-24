@@ -234,7 +234,7 @@ fn load_inputs(
             for input_spec in model.input_specs() {
                 // Convert Option<usize> to usize, using 1 for dynamic dimensions
                 let shape: Vec<usize> = input_spec
-                    .shape
+                    .dimensions
                     .iter()
                     .map(|&dim| dim.unwrap_or(1))
                     .collect();

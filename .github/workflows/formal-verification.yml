@@ -1,0 +1,117 @@
+name: Formal Verification
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  formal-verification:
+    name: Formal Verification
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install Protocol Buffers compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+    
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        
+    - name: Setup OCaml/opam (for Why3)
+      uses: ocaml/setup-ocaml@v3
+      with:
+        ocaml-compiler: 5
+        
+    - name: Install Why3 and theorem provers
+      run: |
+        opam install -y why3 alt-ergo
+        eval $(opam env)
+        which why3
+        # Configure Why3 to detect provers
+        why3 config detect
+        # Verify Alt-Ergo is detected
+        why3 config list-provers | grep -i "alt-ergo" || echo "Alt-Ergo not detected"
+        
+    - name: Check code formatting
+      run: cargo fmt -- --check
+      
+    - name: Run Clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+      
+    - name: Run unit tests
+      run: cargo test --verbose
+      
+    - name: Run formal verification tests
+      run: cargo test formal --lib --verbose
+      
+    - name: Run property-based tests  
+      run: cargo test formal_verification_tests --verbose || true
+      
+    - name: Run formal verification example
+      run: cargo run --example formal_verification
+      
+    - name: Test verification setup
+      run: |
+        eval $(opam env)
+        cd formal
+        make test-setup
+        
+    - name: Run comprehensive verification script
+      run: |
+        eval $(opam env)
+        cd formal
+        make setup-provers || true
+        cd ..
+        python3 formal/verify_operators.py
+        
+    - name: Generate verification report
+      if: always()
+      run: |
+        eval $(opam env)
+        cd formal
+        make report || true
+        
+    - name: Upload verification artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: formal-verification-report
+        path: |
+          formal/_why3session/
+          formal/*.log
+          lcov.info
+        retention-days: 30

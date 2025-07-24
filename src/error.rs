@@ -46,7 +46,7 @@ pub enum OnnxError {
 
     /// Protobuf errors
     #[error("Protobuf error: {0}")]
-    ProtobufError(#[from] protobuf::Error),
+    ProtobufError(#[from] prost::DecodeError),
 
     /// Other errors
     #[error("Other error: {message}")]
