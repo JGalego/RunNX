@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.1.1] - 2025-07-24
 
 ### ✨ Features
 
@@ -14,18 +14,38 @@ All notable changes to this project will be documented in this file.
   - Faster loading performance for binary format
   - Full interoperability with other ONNX runtime implementations
 
+- **🧮 Formal Verification System**: Mathematical verification of operator correctness using Why3
+  - Comprehensive Why3 specifications for all ONNX operators (Add, Mul, MatMul, ReLU, Sigmoid, Transpose, Reshape)
+  - Automated verification pipeline with Alt-Ergo theorem prover
+  - Runtime contract verification with formal assertions
+  - Property-based testing for mathematical properties (commutativity, associativity, monotonicity)
+  - Complete verification automation with Python integration
+
 ### 🚀 Enhancements
 
 - **Format Auto-Detection**: `Model::from_file()` automatically detects JSON (.json) vs ONNX (.onnx) formats
 - **Dual Format CLI**: Command-line runner now supports both JSON and ONNX binary model files
 - **Comprehensive Examples**: Added `onnx_demo.rs` demonstrating format compatibility and conversion
 - **Enhanced Documentation**: New format compatibility guide with best practices
+- **Cross-Platform Compatibility**: Fixed Windows CI issues with platform-independent file paths
+- **CI/CD Improvements**: Enhanced formal verification pipeline with proper dependency management
+- **Test Coverage Enhancement**: Improved overall test coverage to 96.48% with comprehensive CLI testing
+- **Workflow Consolidation**: Unified coverage pipeline into main CI workflow for better maintainability
+
+### 🐛 Bug Fixes
+
+- **Windows CI Compatibility**: Fixed hardcoded Unix paths causing Windows test failures
+- **Protocol Buffers Support**: Added missing `protoc` installation in CI jobs
+- **Formal Verification Integration**: Fixed conditional test compilation for formal verification features
+- **Dependency Updates**: Updated GitHub Actions and resolved security vulnerabilities
+- **CLI Binary Availability**: Fixed "No such file or directory" errors in CI by ensuring runner binary is built before coverage tests
 
 ### 📚 Documentation
 
 - Added comprehensive [Format Compatibility Guide](docs/FORMAT_COMPATIBILITY.md)
 - Updated README with dual format examples and usage patterns
 - Improved code documentation with format-specific examples
+- Complete formal verification documentation and examples
 
 ## [0.1.0] - 2025-07-21
 

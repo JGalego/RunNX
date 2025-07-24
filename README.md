@@ -60,7 +60,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-runnx = "0.1.0"
+runnx = "0.1.1"
 ```
 
 ### Basic Usage
