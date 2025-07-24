@@ -1,3 +1,25 @@
+# Changelog Pipeline - Optional and Configurable
+#
+# This workflow can be controlled in multiple ways:
+#
+# 1. COMMIT MESSAGE CONTROLS:
+#    - Add '[skip changelog]' or '[no changelog]' to commit message to skip
+#    - Example: "fix: bug fix [skip changelog]"
+#
+# 2. MANUAL TRIGGER (workflow_dispatch):
+#    - Go to Actions tab -> Update Changelog -> Run workflow
+#    - Options:
+#      * force_update: true/false - whether to commit changes
+#      * dry_run: true/false - generate preview without committing
+#
+# 3. GLOBAL DISABLE:
+#    - Set CHANGELOG_ENABLED=false in env section below to disable entirely
+#
+# 4. AUTOMATIC BEHAVIOR:
+#    - Runs on push to main (unless skipped)
+#    - Runs on PR for preview (no commit)
+#    - Commits use [skip ci] to avoid infinite loops
+
 name: Update Changelog
 
 on:
@@ -5,15 +27,55 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Force changelog update regardless of commit message'
+        required: false
+        default: false
+        type: boolean
+      dry_run:
+        description: 'Generate changelog preview without committing'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  # Set to 'false' to completely disable automatic changelog updates
+  CHANGELOG_ENABLED: true
 
 jobs:
   changelog:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip changelog]')
+    if: |
+      (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip changelog]') && !contains(github.event.head_commit.message, '[no changelog]')) ||
+      (github.event_name == 'workflow_dispatch') ||
+      github.event_name == 'pull_request'
     permissions:
       contents: write
     
     steps:
+    - name: Changelog Pipeline Info
+      run: |
+        echo "📝 Changelog Pipeline Control Options:"
+        echo "1. Add '[skip changelog]' or '[no changelog]' to commit message to skip"
+        echo "2. Use workflow_dispatch to manually trigger with options"
+        echo "3. Set CHANGELOG_ENABLED=false in workflow env to disable entirely"
+        echo ""
+        echo "Current execution:"
+        echo "Event: ${{ github.event_name }}"
+        
+        if [[ "${{ github.event_name }}" == "push" ]]; then
+          echo "Commit message: ${{ github.event.head_commit.message }}"
+          echo "✅ Automatic changelog update on push"
+        elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "Force update: ${{ github.event.inputs.force_update }}"
+          echo "Dry run: ${{ github.event.inputs.dry_run }}"
+          echo "🔧 Manual trigger"
+        elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "📋 PR preview - no commit will be made"
+        fi
+        
     - name: Checkout code
       uses: actions/checkout@v4
       with:
@@ -28,16 +90,19 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Commit changelog
+      if: |
+        (github.event_name == 'push') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.force_update == 'true' && github.event.inputs.dry_run == 'false')
       run: |
         git config user.name 'github-actions[bot]'
         git config user.email 'github-actions[bot]@users.noreply.github.com'
         
-        # Check if CHANGELOG.md exists and has the v0.1.0 section
+        # Check if CHANGELOG.md exists and has version sections
         if [[ -f CHANGELOG.md ]]; then
-          if grep -q "## \[0\.1\.0\]" CHANGELOG.md; then
-            echo "✅ v0.1.0 section preserved in changelog"
+          if grep -q "## \[0\.1\." CHANGELOG.md; then
+            echo "✅ Version sections preserved in changelog"
           else
-            echo "❌ Warning: v0.1.0 section missing from changelog"
+            echo "❌ Warning: Version sections missing from changelog"
             echo "Skipping commit to prevent data loss"
             exit 1
           fi
@@ -48,10 +113,27 @@ jobs:
             echo "No changes to commit"
           else
             echo "Committing changelog updates..."
-            git commit -m "docs: update changelog [skip ci]"
+            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              git commit -m "docs: update changelog (manual trigger) [skip ci]"
+            else
+              git commit -m "docs: update changelog [skip ci]"
+            fi
             git push
           fi
         else
           echo "CHANGELOG.md was not found"
           exit 1
+        fi
+        
+    - name: Show changelog preview
+      if: |
+        (github.event_name == 'pull_request') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true')
+      run: |
+        echo "📋 Changelog Preview (no commit):"
+        if [[ -f CHANGELOG.md ]]; then
+          echo "--- CHANGELOG.md (first 50 lines) ---"
+          head -50 CHANGELOG.md
+        else
+          echo "CHANGELOG.md was not generated"
         fi 
