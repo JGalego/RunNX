@@ -521,7 +521,7 @@ fn concat_op(
 /// * Single output tensor with sliced result
 fn slice_op(
     inputs: &[Tensor],
-    _attributes: &std::collections::HashMap<String, String>,
+    attributes: &std::collections::HashMap<String, String>,
 ) -> Result<Vec<Tensor>> {
     if inputs.is_empty() {
         return Err(OnnxError::invalid_dimensions(
@@ -529,9 +529,50 @@ fn slice_op(
         ));
     }
 
-    // Simplified implementation - just return the input tensor
-    log::warn!("Slice operator is simplified - returning input tensor");
-    Ok(vec![inputs[0].clone()])
+    let parse_list = |key: &str| -> Result<Vec<i64>> {
+        let val = attributes
+            .get(key)
+            .ok_or_else(|| OnnxError::invalid_dimensions(format!("Missing '{key}' attribute")))?;
+        val.split(',')
+            .map(|s| {
+                s.trim().parse::<i64>().map_err(|_| {
+                    OnnxError::invalid_dimensions(format!("Invalid '{key}' attribute"))
+                })
+            })
+            .collect()
+    };
+
+    let starts = parse_list("starts")?;
+    let ends = parse_list("ends")?;
+
+    let axes: Option<Vec<i64>> = match attributes.get("axes") {
+        Some(v) => Some(
+            v.split(',')
+                .map(|s| {
+                    s.trim()
+                        .parse::<i64>()
+                        .map_err(|_| OnnxError::invalid_dimensions("Invalid 'axes' attribute"))
+                })
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        None => None,
+    };
+
+    let steps: Option<Vec<i64>> = match attributes.get("steps") {
+        Some(v) => Some(
+            v.split(',')
+                .map(|s| {
+                    s.trim()
+                        .parse::<i64>()
+                        .map_err(|_| OnnxError::invalid_dimensions("Invalid 'steps' attribute"))
+                })
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        None => None,
+    };
+
+    let result = inputs[0].slice(&starts, &ends, axes.as_deref(), steps.as_deref())?;
+    Ok(vec![result])
 }
 
 /// Upsample operator implementation
@@ -1243,11 +1284,15 @@ mod tests {
     fn test_slice_op() {
         let tensor = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0, 4.0]));
         let inputs = vec![tensor];
-        let attrs = HashMap::new();
+        let mut attrs = HashMap::new();
+        attrs.insert("starts".to_string(), "1".to_string());
+        attrs.insert("ends".to_string(), "3".to_string());
 
         let result = execute_operator(&OperatorType::Slice, &inputs, &attrs).unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].shape(), &[4]);
+        assert_eq!(result[0].shape(), &[2]);
+        let slice_data = result[0].data().as_slice().unwrap();
+        assert_eq!(slice_data, &[2.0, 3.0]);
     }
 
     #[test]
@@ -1380,7 +1425,10 @@ mod tests {
 
         // Test YOLO operators
         assert!(execute_operator(&OperatorType::Concat, &[tensor_1d.clone()], &attrs).is_ok());
-        assert!(execute_operator(&OperatorType::Slice, &[tensor_1d.clone()], &attrs).is_ok());
+        let mut slice_attrs = HashMap::new();
+        slice_attrs.insert("starts".to_string(), "0".to_string());
+        slice_attrs.insert("ends".to_string(), "1".to_string());
+        assert!(execute_operator(&OperatorType::Slice, &[tensor_1d.clone()], &slice_attrs).is_ok());
         assert!(execute_operator(&OperatorType::Upsample, &[tensor_4d.clone()], &attrs).is_ok());
         assert!(execute_operator(&OperatorType::MaxPool, &[tensor_4d.clone()], &attrs).is_ok());
         assert!(execute_operator(&OperatorType::Softmax, &[tensor_1d.clone()], &attrs).is_ok());

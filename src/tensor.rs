@@ -275,6 +275,90 @@ impl Tensor {
         Ok(Tensor { data: transposed })
     }
 
+    /// Slice the tensor along specified axes
+    ///
+    /// `starts` and `ends` define the slice range for each axis. Optional
+    /// `axes` specifies which axes are sliced (defaults to `[0, 1, ...]`), and
+    /// `steps` sets the stride for each slice (defaults to `1`). Negative indices
+    /// are supported and interpreted relative to the dimension size.
+    pub fn slice(
+        &self,
+        starts: &[i64],
+        ends: &[i64],
+        axes: Option<&[i64]>,
+        steps: Option<&[i64]>,
+    ) -> Result<Tensor> {
+        if starts.len() != ends.len() {
+            return Err(OnnxError::invalid_dimensions(
+                "Starts and ends arrays must have same length",
+            ));
+        }
+
+        let num = starts.len();
+        let axes_vec: Vec<usize> = if let Some(ax) = axes {
+            if ax.len() != num {
+                return Err(OnnxError::invalid_dimensions(
+                    "Axes length must match starts/ends length",
+                ));
+            }
+            ax.iter().map(|&a| a as usize).collect()
+        } else {
+            (0..num).collect()
+        };
+
+        let steps_vec: Vec<i64> = if let Some(st) = steps {
+            if st.len() != num {
+                return Err(OnnxError::invalid_dimensions(
+                    "Steps length must match starts/ends length",
+                ));
+            }
+            st.to_vec()
+        } else {
+            vec![1; num]
+        };
+
+        let mut result = self.data.clone();
+        for ((&axis, (&start, &end)), &step) in axes_vec
+            .iter()
+            .zip(starts.iter().zip(ends.iter()))
+            .zip(steps_vec.iter())
+        {
+            if axis >= result.ndim() {
+                return Err(OnnxError::invalid_dimensions(format!(
+                    "Axis {axis} out of bounds"
+                )));
+            }
+
+            let dim = result.shape()[axis] as i64;
+            if step == 0 {
+                return Err(OnnxError::invalid_dimensions("Step value cannot be zero"));
+            }
+
+            let mut s = start;
+            let mut e = end;
+            if s < 0 {
+                s += dim;
+            }
+            if e < 0 {
+                e += dim;
+            }
+            if s < 0 || e > dim || s >= e {
+                return Err(OnnxError::invalid_dimensions(format!(
+                    "Invalid slice range: {s}..{e} for axis {axis}",
+                )));
+            }
+
+            let slice = ndarray::Slice {
+                start: s as isize,
+                end: Some(e as isize),
+                step: step as isize,
+            };
+            result = result.slice_axis(ndarray::Axis(axis), slice).to_owned();
+        }
+
+        Ok(Tensor { data: result })
+    }
+
     /// Apply ReLU activation (max(0, x))
     ///
     /// # Examples
@@ -789,6 +873,15 @@ mod tests {
         assert_eq!(tensor, cloned);
         assert_eq!(tensor.shape(), cloned.shape());
         assert_eq!(tensor.len(), cloned.len());
+    }
+
+    #[test]
+    fn test_slice() {
+        let tensor = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0, 4.0]));
+        let sliced = tensor.slice(&[1], &[3], None, None).unwrap();
+        assert_eq!(sliced.shape(), &[2]);
+        let data = sliced.data().as_slice().unwrap();
+        assert_eq!(data, &[2.0, 3.0]);
     }
 
     #[test]

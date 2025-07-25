@@ -27,7 +27,7 @@ All notable changes to this project will be documented in this file.
 
 - **🛠️ YOLO Model Support**: Essential operators for YOLO object detection
   - `Concat`: Tensor concatenation for feature fusion
-  - `Slice`: Tensor slicing operations (simplified)
+  - `Slice`: Tensor slicing operations
   - `Upsample`: Feature map upsampling for FPN (simplified)
   - `MaxPool`: Max pooling operations (simplified)
   - `Softmax`: Classification probability computation
