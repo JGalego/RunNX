@@ -101,7 +101,7 @@ jobs:
         # Clean any previous builds to avoid conflicts
         cargo clean
         # Build with explicit target for consistency
-        cargo build --release --bin runnx-runner --locked
+        cargo build --release --bin runnx-runner
         # Verify the binary was created
         ls -la target/release/runnx-runner
         

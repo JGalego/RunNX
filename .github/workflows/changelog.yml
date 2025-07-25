@@ -42,7 +42,7 @@ on:
 
 env:
   # Set to 'false' to completely disable automatic changelog updates
-  CHANGELOG_ENABLED: true
+  CHANGELOG_ENABLED: false
 
 jobs:
   changelog:

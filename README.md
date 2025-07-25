@@ -9,7 +9,7 @@ A minimal, **mathematically verifiable** ONNX runtime implementation in Rust.
 [![Formal Verification](https://github.com/jgalego/runnx/actions/workflows/formal-verification.yml/badge.svg)](https://github.com/jgalego/runnx/actions/workflows/formal-verification.yml)
 [![codecov](https://codecov.io/gh/jgalego/runnx/branch/main/graph/badge.svg)](https://codecov.io/gh/jgalego/runnx)
 
-![RunNX](runnx.jpg)
+![RunNX](assets/runnx.jpg)
 
 ## Overview
 
@@ -25,7 +25,19 @@ This project provides a minimal, educational ONNX runtime implementation focused
 
 - ✅ Dual Format Support: JSON and binary ONNX protobuf formats
 - ✅ Auto-detection: Automatic format detection based on file extension
+- ✅ **Graph Visualization**: Beautiful terminal ASCII art and professional Graphviz export
+  - Terminal visualization with dynamic layout and rich formatting
+  - DOT format export for publication-quality diagrams (PNG, SVG, PDF)
+  - CLI integration with `--graph` and `--dot` options
+  - Topological sorting and cycle detection
 - ✅ Basic tensor operations (`Add`, `Mul`, `MatMul`, `Conv`, `Relu`, `Sigmoid`, `Reshape`, `Transpose`)
+- ✅ **YOLO Model Support**: Essential operators for YOLO object detection models
+  - `Concat`: Tensor concatenation for feature fusion
+  - `Slice`: Tensor slicing operations
+  - `Upsample`: Feature map upsampling for FPN
+  - `MaxPool`: Max pooling operations
+  - `Softmax`: Classification probability computation
+  - `NonMaxSuppression`: Object detection post-processing
 - ✅ Formal mathematical specifications with Why3
 - ✅ Property-based testing for mathematical correctness
 - ✅ Runtime invariant verification
@@ -60,7 +72,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-runnx = "0.1.1"
+runnx = "0.2.0"
 ```
 
 ### Basic Usage
@@ -105,9 +117,194 @@ model.to_json_file("readable.json")?;  // Explicit JSON format
 cargo run --bin runnx-runner -- --model model.onnx --input input.json
 cargo run --bin runnx-runner -- --model model.json --input input.json
 
+# Show model summary and graph visualization
+cargo run --bin runnx-runner -- --model model.onnx --summary --graph
+
+# Generate Graphviz DOT file for professional diagrams
+cargo run --bin runnx-runner -- --model model.onnx --dot graph.dot
+
 # Run with async support
 cargo run --features async --bin runnx-runner -- --model model.onnx --input input.json
 ```
+
+## Graph Visualization
+
+RunNX provides comprehensive graph visualization capabilities to help you understand and debug ONNX model structures. You can visualize models both in the terminal and as publication-quality graphics.
+
+### Terminal Visualization
+
+Display beautiful ASCII art representations of your model directly in the terminal:
+
+```bash
+# Show visual graph representation
+./target/debug/runnx-runner --model model.onnx --graph
+
+# Show both model summary and graph
+./target/debug/runnx-runner --model model.onnx --summary --graph
+```
+
+#### Example Output
+
+Here's what the terminal visualization looks like for a complex neural network:
+
+```
+┌────────────────────────────────────────┐
+│       GRAPH: neural_network_demo       │
+└────────────────────────────────────────┘
+
+📥 INPUTS:
+   ┌─ image_input [1 × 3 × 224 × 224] (float32)
+   ┌─ mask_input [1 × 1 × 224 × 224] (float32)
+
+⚙️  INITIALIZERS:
+   ┌─ conv1_weight [64 × 3 × 7 × 7]
+   ┌─ conv1_bias [64]
+   ┌─ fc_weight [1000 × 512]
+   ┌─ fc_bias [1000]
+
+🔄 COMPUTATION FLOW:
+   │
+   ├─ Step 1: conv1
+   │  ┌─ Operation: Conv
+   │  ├─ Inputs:
+   │  │  └─ image_input
+   │  │  └─ conv1_weight
+   │  │  └─ conv1_bias
+   │  ├─ Outputs:
+   │  │  └─ conv1_output
+   │  └─ Attributes:
+   │     └─ kernel_shape: [7, 7]
+   │     └─ strides: [2, 2]
+   │     └─ pads: [3, 3, 3, 3]
+   │
+   ├─ Step 2: relu1
+   │  ┌─ Operation: Relu
+   │  ├─ Inputs:
+   │  │  └─ conv1_output
+   │  ├─ Outputs:
+   │  │  └─ relu1_output
+   │  └─ (no attributes)
+   
+   [... more steps ...]
+
+📤 OUTPUTS:
+   └─ classification [1 × 1000] (float32)
+   └─ segmentation [1 × 21 × 224 × 224] (float32)
+
+📊 STATISTICS:
+   ├─ Total nodes: 10
+   ├─ Input tensors: 2
+   ├─ Output tensors: 2
+   └─ Initializers: 4
+
+🎯 OPERATION SUMMARY:
+   ├─ Add: 1
+   ├─ Conv: 2
+   ├─ Flatten: 1
+   ├─ GlobalAveragePool: 1
+   ├─ MatMul: 1
+   ├─ MaxPool: 1
+   ├─ Mul: 1
+   ├─ Relu: 1
+   └─ Upsample: 1
+```
+
+### Graphviz Export
+
+Generate professional diagrams using DOT format for Graphviz:
+
+```bash
+# Generate DOT file for Graphviz
+./target/debug/runnx-runner --model model.onnx --dot graph.dot
+
+# Convert to PNG (requires Graphviz installation)
+dot -Tpng graph.dot -o graph.png
+
+# Convert to SVG for vector graphics
+dot -Tsvg graph.dot -o graph.svg
+
+# Convert to PDF for documents
+dot -Tpdf graph.dot -o graph.pdf
+```
+
+#### Example Graph Output
+
+The DOT format generates clean, professional diagrams with:
+- **Green ellipses** for input tensors
+- **Blue diamonds** for initializers (weights/biases)  
+- **Rectangular boxes** for operations
+- **Red ellipses** for output tensors
+- **Directed arrows** showing data flow
+
+![Complex Neural Network Graph](assets/complex_graph.png)
+
+*Example: Multi-task neural network with classification and segmentation branches*
+
+#### DOT Format Output
+
+The generated DOT file contains structured graph data that Graphviz uses to create the visualizations. Here's an excerpt of the DOT format:
+
+```dot
+digraph G {
+  rankdir=TB;
+  node [shape=box, style=rounded];
+
+  "image_input" [shape=ellipse, color=green, label="image_input"];
+  "mask_input" [shape=ellipse, color=green, label="mask_input"];
+  "conv1_weight" [shape=diamond, color=blue, label="conv1_weight"];
+  "conv1_bias" [shape=diamond, color=blue, label="conv1_bias"];
+  "conv1" [label="conv1\n(Conv)"];
+  "relu1" [label="relu1\n(Relu)"];
+  "classification" [shape=ellipse, color=red, label="classification"];
+  "segmentation" [shape=ellipse, color=red, label="segmentation"];
+
+  "image_input" -> "conv1";
+  "conv1_weight" -> "conv1";
+  "conv1_bias" -> "conv1";
+  "conv1" -> "relu1";
+  "relu1" -> "classification";
+  // ... additional connections
+}
+```
+
+The DOT format uses:
+- **Nodes**: Define graph elements with shapes, colors, and labels
+- **Edges**: Define connections with `->` arrows
+- **Attributes**: Control visual appearance and layout
+- **rankdir=TB**: Top-to-bottom layout direction
+
+For the complete DOT file example, see [`assets/complex_graph.dot`](assets/complex_graph.dot).
+
+### Programmatic Usage
+
+You can also generate visualizations programmatically:
+
+```rust
+use runnx::Model;
+
+let model = Model::from_file("model.onnx")?;
+
+// Print graph to terminal
+model.print_graph();
+
+// Generate DOT format
+let dot_content = model.to_dot();
+std::fs::write("graph.dot", dot_content)?;
+
+// The graph name box automatically adjusts to any length
+// Works with short names like "CNN" or very long names like
+// "SuperLongComplexNeuralNetworkGraphName"
+```
+
+### Features
+
+- **Dynamic Layout**: Graph title box automatically adjusts to accommodate any name length
+- **Topological Sorting**: Shows correct execution order with dependency resolution
+- **Cycle Detection**: Gracefully handles graphs with cycles  
+- **Rich Information**: Displays shapes, data types, attributes, and statistics
+- **Color Coding**: Visual distinction between different node types in DOT format
+- **Multiple Formats**: Terminal ASCII art and Graphviz-compatible DOT export
+- **Professional Quality**: Publication-ready graphics for papers and presentations
 
 ## Architecture
 
@@ -149,6 +346,7 @@ For explicit control, use:
 
 ### Supported Operators
 
+#### Basic Operators
 | Operator      | Status   | Notes                       |
 | ------------- | -------- | --------------------------- |
 | `Add`         | ✅      | Element-wise addition        |
@@ -159,6 +357,18 @@ For explicit control, use:
 | `Sigmoid`     | ✅      | Sigmoid activation           |
 | `Reshape`     | ✅      | Tensor reshaping             |
 | `Transpose`   | ✅      | Tensor transposition         |
+
+#### YOLO-Specific Operators
+| Operator             | Status   | Notes                                |
+| -------------------- | -------- | ------------------------------------ |
+| `Concat`             | ✅      | Tensor concatenation for FPN         |
+| `Slice`              | 🚧      | Tensor slicing (simplified)          |
+| `Upsample`           | 🚧      | Feature upsampling (simplified)      |
+| `MaxPool`            | 🚧      | Max pooling (simplified)             |
+| `Softmax`            | ✅      | Classification probabilities         |
+| `NonMaxSuppression`  | 🚧      | NMS for detection (simplified)       |
+
+*Legend: ✅ = Fully implemented, 🚧 = Simplified implementation, ❌ = Not implemented*
 
 ## Examples
 
@@ -252,6 +462,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 # Format compatibility demonstration
 cargo run --example onnx_demo
 
+# YOLO operator support demonstration
+cargo run --example yolo_demo
+
+# YOLOv8n compatibility testing
+cargo run --example yolov8n_compat_demo
+
 # Format conversion between JSON and ONNX binary
 cargo run --example format_conversion
 
@@ -264,6 +480,111 @@ cargo run --example formal_verification
 # Tensor operations
 cargo run --example tensor_ops
 ```
+
+### YOLO Model Support
+
+RunNX now includes essential operators for YOLO-style object detection models:
+
+```rust
+use runnx::*;
+
+fn main() -> runnx::Result<()> {
+    // Create a YOLO-like model structure
+    let mut graph = graph::Graph::new("yolo_demo".to_string());
+    
+    // Input: RGB image [1, 3, 640, 640]
+    let input_spec = graph::TensorSpec::new(
+        "images".to_string(), 
+        vec![Some(1), Some(3), Some(640), Some(640)]
+    );
+    graph.add_input(input_spec);
+    
+    // Output: Detections [1, 25200, 85] (COCO: 80 classes + 4 coords + 1 conf)
+    let output_spec = graph::TensorSpec::new(
+        "detections".to_string(), 
+        vec![Some(1), Some(25200), Some(85)]
+    );
+    graph.add_output(output_spec);
+    
+    // Add YOLO-essential nodes
+    let backbone_conv = graph::Node::new(
+        "backbone_conv".to_string(),
+        "Conv".to_string(),
+        vec!["images".to_string()],
+        vec!["features".to_string()],
+    );
+    graph.add_node(backbone_conv);
+    
+    // SiLU activation (Sigmoid * x)
+    let silu_sigmoid = graph::Node::new(
+        "silu_sigmoid".to_string(),
+        "Sigmoid".to_string(),
+        vec!["features".to_string()],
+        vec!["sigmoid_out".to_string()],
+    );
+    let silu_mul = graph::Node::new(
+        "silu_mul".to_string(),
+        "Mul".to_string(),
+        vec!["features".to_string(), "sigmoid_out".to_string()],
+        vec!["silu_out".to_string()],
+    );
+    graph.add_node(silu_sigmoid);
+    graph.add_node(silu_mul);
+    
+    // Multi-scale feature processing
+    let upsample = graph::Node::new(
+        "upsample".to_string(),
+        "Upsample".to_string(),
+        vec!["silu_out".to_string()],
+        vec!["upsampled".to_string()],
+    );
+    let concat = graph::Node::new(
+        "concat".to_string(),
+        "Concat".to_string(),
+        vec!["upsampled".to_string(), "silu_out".to_string()],
+        vec!["concat_out".to_string()],
+    );
+    graph.add_node(upsample);
+    graph.add_node(concat);
+    
+    // Detection head with Softmax
+    let head_conv = graph::Node::new(
+        "head_conv".to_string(),
+        "Conv".to_string(),
+        vec!["concat_out".to_string()],
+        vec!["raw_detections".to_string()],
+    );
+    let softmax = graph::Node::new(
+        "softmax".to_string(),
+        "Softmax".to_string(),
+        vec!["raw_detections".to_string()],
+        vec!["detections".to_string()],
+    );
+    graph.add_node(head_conv);
+    graph.add_node(softmax);
+    
+    let model = model::Model::with_metadata(
+        model::ModelMetadata {
+            name: "yolo_demo_v1".to_string(),
+            version: "1.0".to_string(),
+            description: "YOLO-like object detection model".to_string(),
+            producer: "RunNX YOLO Demo".to_string(),
+            onnx_version: "1.9.0".to_string(),
+            domain: "".to_string(),
+        },
+        graph,
+    );
+    
+    println!("🎯 YOLO Model Created!");
+    println!("   Inputs: {} ({})", model.graph.inputs.len(), model.graph.inputs[0].name);
+    println!("   Outputs: {} ({})", model.graph.outputs.len(), model.graph.outputs[0].name);
+    println!("   Nodes: {} (Conv, SiLU, Upsample, Concat, Softmax)", model.graph.nodes.len());
+    
+    Ok(())
+}
+```
+
+### Basic Model Loading
 
 ```rust
 use runnx::{Model, Tensor};
@@ -335,7 +656,7 @@ function add_spec (a b: tensor) : tensor
 Automatic verification of mathematical properties:
 
 ```rust
-use runnx::formal::contracts::{AdditionContracts, ActivationContracts};
+use runnx::formal::contracts::{AdditionContracts, ActivationContracts, YoloOperatorContracts};
 
 // Test addition commutativity: a + b = b + a
 let result1 = tensor_a.add_with_contracts(&tensor_b)?;
@@ -346,6 +667,11 @@ assert_eq!(result1.data(), result2.data());
 let relu_once = tensor.relu_with_contracts()?;
 let relu_twice = relu_once.relu_with_contracts()?;
 assert_eq!(relu_once.data(), relu_twice.data());
+
+// Test Softmax probability distribution: sum = 1.0
+let softmax_result = tensor.softmax_with_contracts()?;
+let sum: f32 = softmax_result.data().iter().sum();
+assert!((sum - 1.0).abs() < 1e-6);
 ```
 
 ### 🔍 Runtime Verification
@@ -521,14 +847,34 @@ This project is licensed under
 ### ✅ Completed
 - [x] **Dual Format Support**: Both JSON and binary ONNX protobuf formats
 - [x] **Auto-detection**: Automatic format detection based on file extension  
+- [x] **Graph Visualization**: Terminal ASCII art and professional Graphviz export
 - [x] **Core Operators**: Add, Mul, MatMul, Conv, ReLU, Sigmoid, Reshape, Transpose
+- [x] **YOLO Operators**: Concat, Slice, Upsample, MaxPool, Softmax, NonMaxSuppression
 - [x] **Formal Verification**: Mathematical specifications with Why3
-- [x] **CLI Tool**: Command-line runner for model inference
+- [x] **CLI Tool**: Command-line runner with visualization capabilities
 
 ### 🚧 Planned
-- [ ] Add more operators (Softmax, BatchNorm, etc.)
+- [ ] Add more operators (BatchNorm, LayerNorm, etc.)
 - [ ] GPU acceleration support
 - [ ] Quantization support
 - [ ] Model optimization passes
 - [ ] WASM compilation target
 - [ ] Python bindings
+
+## Documentation
+
+### 📚 Additional Resources
+
+- **[Release Notes](RELEASE_NOTES_0.2.0.md)** - What's new in the latest version
+- **[Complete Changelog](CHANGELOG.md)** - Full history of changes
+- **[Release History](docs/releases/)** - All previous release notes
+- **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to RunNX
+- **[Development QA](docs/DEVELOPMENT_QA.md)** - Quality assurance guidelines
+- **[Formal Verification](FORMAL_VERIFICATION.md)** - Mathematical verification details
+
+### 🔗 External Links
+
+- **[API Documentation](https://docs.rs/runnx)** - Complete API reference
+- **[Crates.io](https://crates.io/crates/runnx)** - Package information
+- **[GitHub Repository](https://github.com/JGalego/runnx)** - Source code and issues
+- **[CI/CD Status](https://github.com/JGalego/runnx/actions)** - Build and test results

@@ -32,3 +32,9 @@ simple_model.json
 /coverage/
 tarpaulin-report.html
 lcov.info
+
+# Generated graph files (keep assets/ folder contents)
+/*.dot
+/*.png
+/*.svg
+/*.pdf

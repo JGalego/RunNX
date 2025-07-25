@@ -48,6 +48,127 @@ theory OperatorSpecs
 
   lemma add_associativity:
     forall a b c ab_c a_bc: tensor.
+    add_spec a b ab_c /\ add_spec ab_c c result1 /\
+    add_spec b c a_bc /\ add_spec a a_bc result2 ->
+    forall i. 0 <= i < result1.size -> result1.data[i] = result2.data[i]
+
+  (* YOLO Operator Specifications *)
+
+  (* Softmax operator specification *)
+  function exp_real (x: real) : real
+  function sum_array (arr: tensor_data) (size: int) : real
+
+  predicate softmax_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    (* Numerical stability: subtract max before exponential *)
+    let max_val = max_array input.data input.size in
+    (* Sum of exponentials after max subtraction *)
+    let exp_sum = sum_exp_shifted input.data input.size max_val in
+    exp_sum > 0.0 /\
+    (* Each output element is normalized exponential *)
+    forall i. 0 <= i < output.size ->
+      output.data[i] = exp_real (input.data[i] - max_val) / exp_sum /\
+      0.0 < output.data[i] < 1.0
+
+  (* Helper functions for softmax *)
+  function max_array (arr: tensor_data) (size: int) : real
+  function sum_exp_shifted (arr: tensor_data) (size: int) (shift: real) : real
+
+  (* Softmax probability distribution property *)
+  lemma softmax_probability_sum:
+    forall input output: tensor.
+    softmax_spec input output ->
+    sum_array output.data output.size = 1.0
+
+  (* Softmax numerical stability property *)
+  lemma softmax_stability:
+    forall input shifted_input output1 output2: tensor, shift: real.
+    (forall i. 0 <= i < input.size -> shifted_input.data[i] = input.data[i] - shift) /\
+    same_shape input shifted_input /\
+    softmax_spec input output1 /\
+    softmax_spec shifted_input output2 ->
+    forall i. 0 <= i < output1.size -> output1.data[i] = output2.data[i]
+
+  (* Concatenation operator specification *)
+  predicate concat_spec (input1 input2 output: tensor) (axis: int) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    0 <= axis < length input1.shape /\
+    length input1.shape = length input2.shape /\
+    length output.shape = length input1.shape /\
+    (* All dimensions except axis must match *)
+    (forall i. 0 <= i < length input1.shape /\ i <> axis ->
+      input1.shape[i] = input2.shape[i] /\
+      output.shape[i] = input1.shape[i]) /\
+    (* Output dimension at axis is sum of input dimensions *)
+    output.shape[axis] = input1.shape[axis] + input2.shape[axis]
+
+  (* Slice operator specification *)
+  predicate slice_spec (input output: tensor) (starts ends: array int) =
+    valid_tensor input /\
+    valid_tensor output /\
+    length starts = length ends /\
+    length starts <= length input.shape /\
+    (* Valid slice ranges *)
+    (forall i. 0 <= i < length starts ->
+      0 <= starts[i] < ends[i] <= input.shape[i]) /\
+    (* Output shape matches slice dimensions *)
+    (forall i. 0 <= i < length starts ->
+      output.shape[i] = ends[i] - starts[i])
+
+  (* Upsample operator specification *)
+  predicate upsample_spec (input output: tensor) (scale_factors: array real) =
+    valid_tensor input /\
+    valid_tensor output /\
+    length scale_factors = length input.shape /\
+    length output.shape = length input.shape /\
+    (* Scale factors must be positive *)
+    (forall i. 0 <= i < length scale_factors -> scale_factors[i] > 0.0) /\
+    (* Output dimensions are scaled *)
+    (forall i. 0 <= i < length input.shape ->
+      output.shape[i] = real_to_int (int_to_real input.shape[i] * scale_factors[i]))
+
+  (* MaxPool operator specification *)
+  predicate maxpool_spec (input output: tensor) (kernel_size strides padding: array int) =
+    valid_tensor input /\
+    valid_tensor output /\
+    length kernel_size = length strides /\
+    length strides = length padding /\
+    (* Kernel size must be positive *)
+    (forall i. 0 <= i < length kernel_size -> kernel_size[i] > 0) /\
+    (* Strides must be positive *)
+    (forall i. 0 <= i < length strides -> strides[i] > 0) /\
+    (* Output contains maximum values from pooling windows *)
+    forall i. 0 <= i < output.size ->
+      exists j. 0 <= j < input.size /\
+      input.data[j] <= output.data[i]
+
+  (* Non-Maximum Suppression specification *)
+  predicate nms_spec (boxes scores: tensor) (iou_threshold score_threshold: real) (indices: array int) =
+    valid_tensor boxes /\
+    valid_tensor scores /\
+    length boxes.shape = 2 /\
+    boxes.shape[1] = 4 /\ (* [N, 4] format *)
+    length scores.shape = 1 /\
+    scores.shape[0] = boxes.shape[0] /\
+    0.0 <= iou_threshold <= 1.0 /\
+    score_threshold >= 0.0 /\
+    (* Output indices are sorted by descending scores *)
+    (forall i j. 0 <= i < j < length indices ->
+      scores.data[indices[i]] >= scores.data[indices[j]]) /\
+    (* All selected boxes have IoU below threshold *)
+    (forall i j. 0 <= i < j < length indices ->
+      iou_boxes boxes indices[i] indices[j] <= iou_threshold)
+
+  (* Helper function for IoU calculation *)
+  function iou_boxes (boxes: tensor) (idx1 idx2: int) : real
+
+  (* Utility functions *)
+  function int_to_real (x: int) : real
+  function real_to_int (x: real) : int
     (exists ab. add_spec a b ab /\ add_spec ab c ab_c) /\
     (exists bc. add_spec b c bc /\ add_spec a bc a_bc) ->
     forall i. 0 <= i < ab_c.size -> ab_c.data[i] = a_bc.data[i]

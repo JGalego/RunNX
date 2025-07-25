@@ -2,17 +2,54 @@
 
 All notable changes to this project will be documented in this file.
 
-## [unreleased]
+## [0.2.0] - 2025-07-25
 
-### Bug Fixes
+### ✨ Features
 
-- Resolve GitHub release workflow tar error
+- **📊 Graph Visualization System**: Comprehensive model graph visualization capabilities
+  - `Model::print_graph()` method for beautiful terminal ASCII art visualization
+  - `Model::to_dot()` method for professional Graphviz export
+  - Dynamic title box sizing that adapts to any graph name length
+  - Rich information display: shapes, data types, attributes, and statistics
+  - Topological sorting with correct execution order
+  - Cycle detection for robust graph handling
+  - CLI options: `--graph` for terminal visualization, `--dot` for file export
 
-### Features
+- **🎨 Professional Diagram Generation**: Publication-quality graphics support
+  - Graphviz DOT format export for professional diagrams
+  - Support for PNG, SVG, and PDF output formats
+  - Color-coded visual elements:
+    - Green ellipses for input tensors
+    - Blue diamonds for initializers (weights/biases)
+    - Rectangular boxes for operations
+    - Red ellipses for output tensors
+    - Directed arrows showing data flow
 
-- Added formal verification 🧮
-- ONNX binary support
-- Added formal operator verification
+- **🛠️ YOLO Model Support**: Essential operators for YOLO object detection
+  - `Concat`: Tensor concatenation for feature fusion
+  - `Slice`: Tensor slicing operations (simplified)
+  - `Upsample`: Feature map upsampling for FPN (simplified)
+  - `MaxPool`: Max pooling operations (simplified)
+  - `Softmax`: Classification probability computation
+  - `NonMaxSuppression`: Object detection post-processing (simplified)
+  - Formal verification contracts for all YOLO operators
+
+### 🚀 Enhancements
+
+- **Terminal Visualization**: Rich ASCII art output with Unicode symbols and structured layout
+- **CLI Integration**: Seamless command-line graph visualization workflow
+- **Documentation**: Comprehensive examples showing terminal output and DOT format
+- **Code Organization**: Clean separation of concerns with dedicated graph module
+- **Testing**: Complete test coverage for graph functionality and visualization
+
+### 📚 Documentation
+
+- Enhanced README with complete graph visualization guide
+- Terminal output examples for complex neural networks
+- DOT format syntax explanation and best practices
+- Asset management documentation
+- Professional diagram generation workflow
+- Programmatic usage examples
 
 ## [0.1.1] - 2025-07-24
 

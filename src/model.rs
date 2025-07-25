@@ -387,6 +387,26 @@ impl Model {
 
         summary
     }
+
+    /// Print the model graph in a visual ASCII format
+    pub fn print_graph(&self) {
+        self.graph.print_graph();
+    }
+
+    /// Generate DOT format for the model graph (for use with Graphviz)
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use runnx::Model;
+    ///
+    /// let model = Model::from_file("model.json").unwrap();
+    /// let dot_content = model.to_dot();
+    /// std::fs::write("graph.dot", dot_content).unwrap();
+    /// // Then run: dot -Tpng graph.dot -o graph.png
+    /// ```
+    pub fn to_dot(&self) -> String {
+        self.graph.to_dot()
+    }
 }
 
 impl std::fmt::Display for Model {

@@ -260,6 +260,198 @@ impl Graph {
         Ok(result)
     }
 
+    /// Print the graph structure in a visual ASCII format
+    pub fn print_graph(&self) {
+        // Calculate the width needed for the graph name
+        let title = format!("GRAPH: {}", self.name);
+        let min_width = title.len() + 4; // 2 spaces on each side
+        let box_width = std::cmp::max(min_width, 40); // Minimum width of 40 characters
+
+        // Create the top border
+        let top_border = format!("┌{}┐", "─".repeat(box_width));
+
+        // Create the title line with proper centering
+        let padding = (box_width - title.len()) / 2;
+        let left_padding = " ".repeat(padding);
+        let right_padding = " ".repeat(box_width - title.len() - padding);
+        let title_line = format!("│{left_padding}{title}{right_padding}│");
+
+        // Create the bottom border
+        let bottom_border = format!("└{}┘", "─".repeat(box_width));
+
+        println!("\n{top_border}");
+        println!("{title_line}");
+        println!("{bottom_border}");
+
+        // Print inputs
+        if !self.inputs.is_empty() {
+            println!("\n📥 INPUTS:");
+            for input in &self.inputs {
+                let shape_str = input
+                    .dimensions
+                    .iter()
+                    .map(|d| d.map_or("?".to_string(), |v| v.to_string()))
+                    .collect::<Vec<_>>()
+                    .join(" × ");
+                println!("   ┌─ {} [{}] ({})", input.name, shape_str, input.dtype);
+            }
+        }
+
+        // Print initializers
+        if !self.initializers.is_empty() {
+            println!("\n⚙️  INITIALIZERS:");
+            for (name, tensor) in &self.initializers {
+                let shape_str = tensor
+                    .shape()
+                    .iter()
+                    .map(|&d| d.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" × ");
+                println!("   ┌─ {name} [{shape_str}]");
+            }
+        }
+
+        // Print computation flow
+        if !self.nodes.is_empty() {
+            println!("\n🔄 COMPUTATION FLOW:");
+
+            // Try to get execution order, fall back to original order if there are cycles
+            let execution_order = self.topological_sort().unwrap_or_else(|_| {
+                println!("   ⚠️  Warning: Graph contains cycles, showing original order");
+                (0..self.nodes.len()).collect()
+            });
+
+            for (step, &node_idx) in execution_order.iter().enumerate() {
+                let node = &self.nodes[node_idx];
+
+                // Print step number
+                println!("   │");
+                println!("   ├─ Step {}: {}", step + 1, node.name);
+
+                // Print operation type
+                println!("   │  ┌─ Operation: {}", node.op_type);
+
+                // Print inputs
+                if !node.inputs.is_empty() {
+                    println!("   │  ├─ Inputs:");
+                    for input in &node.inputs {
+                        println!("   │  │  └─ {input}");
+                    }
+                }
+
+                // Print outputs
+                if !node.outputs.is_empty() {
+                    println!("   │  ├─ Outputs:");
+                    for output in &node.outputs {
+                        println!("   │  │  └─ {output}");
+                    }
+                }
+
+                // Print attributes if any
+                if !node.attributes.is_empty() {
+                    println!("   │  └─ Attributes:");
+                    for (key, value) in &node.attributes {
+                        println!("   │     └─ {key}: {value}");
+                    }
+                } else {
+                    println!("   │  └─ (no attributes)");
+                }
+            }
+        }
+
+        // Print outputs
+        if !self.outputs.is_empty() {
+            println!("   │");
+            println!("📤 OUTPUTS:");
+            for output in &self.outputs {
+                let shape_str = output
+                    .dimensions
+                    .iter()
+                    .map(|d| d.map_or("?".to_string(), |v| v.to_string()))
+                    .collect::<Vec<_>>()
+                    .join(" × ");
+                println!("   └─ {} [{}] ({})", output.name, shape_str, output.dtype);
+            }
+        }
+
+        println!("\n📊 STATISTICS:");
+        println!("   ├─ Total nodes: {}", self.nodes.len());
+        println!("   ├─ Input tensors: {}", self.inputs.len());
+        println!("   ├─ Output tensors: {}", self.outputs.len());
+        println!("   └─ Initializers: {}", self.initializers.len());
+
+        // Print operation summary
+        if !self.nodes.is_empty() {
+            let mut op_counts: std::collections::BTreeMap<String, usize> =
+                std::collections::BTreeMap::new();
+            for node in &self.nodes {
+                *op_counts.entry(node.op_type.clone()).or_insert(0) += 1;
+            }
+
+            println!("\n🎯 OPERATION SUMMARY:");
+            for (op_type, count) in op_counts {
+                println!("   ├─ {op_type}: {count}");
+            }
+        }
+
+        println!();
+    }
+
+    /// Generate a simplified DOT format for graph visualization tools
+    pub fn to_dot(&self) -> String {
+        let mut dot = String::new();
+
+        dot.push_str("digraph G {\n");
+        dot.push_str("  rankdir=TB;\n");
+        dot.push_str("  node [shape=box, style=rounded];\n\n");
+
+        // Add input nodes
+        for input in &self.inputs {
+            dot.push_str(&format!(
+                "  \"{}\" [shape=ellipse, color=green, label=\"{}\"];\n",
+                input.name, input.name
+            ));
+        }
+
+        // Add initializer nodes
+        for name in self.initializers.keys() {
+            dot.push_str(&format!(
+                "  \"{name}\" [shape=diamond, color=blue, label=\"{name}\"];\n"
+            ));
+        }
+
+        // Add operation nodes
+        for node in &self.nodes {
+            dot.push_str(&format!(
+                "  \"{}\" [label=\"{}\\n({})\"];\n",
+                node.name, node.name, node.op_type
+            ));
+        }
+
+        // Add output nodes
+        for output in &self.outputs {
+            dot.push_str(&format!(
+                "  \"{}\" [shape=ellipse, color=red, label=\"{}\"];\n",
+                output.name, output.name
+            ));
+        }
+
+        dot.push('\n');
+
+        // Add edges
+        for node in &self.nodes {
+            for input in &node.inputs {
+                dot.push_str(&format!("  \"{}\" -> \"{}\";\n", input, node.name));
+            }
+            for output in &node.outputs {
+                dot.push_str(&format!("  \"{}\" -> \"{}\";\n", node.name, output));
+            }
+        }
+
+        dot.push_str("}\n");
+        dot
+    }
+
     /// Create a simple linear graph for testing
     pub fn create_simple_linear() -> Self {
         let mut graph = Graph::new("simple_linear".to_string());
@@ -425,6 +617,24 @@ mod tests {
             .position(|&i| graph.nodes[i].op_type == "Add")
             .unwrap();
         assert!(matmul_pos < add_pos);
+    }
+
+    #[test]
+    fn test_graph_print_functions() {
+        let graph = Graph::create_simple_linear();
+
+        // Test that print_graph doesn't panic
+        graph.print_graph();
+
+        // Test DOT format generation
+        let dot_content = graph.to_dot();
+        assert!(dot_content.contains("digraph G {"));
+        assert!(dot_content.contains("input"));
+        assert!(dot_content.contains("output"));
+        assert!(dot_content.contains("MatMul"));
+        assert!(dot_content.contains("Add"));
+        assert!(dot_content.contains("->"));
+        assert!(dot_content.ends_with("}\n"));
     }
 
     #[test]
