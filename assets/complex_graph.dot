@@ -1,0 +1,49 @@
+digraph G {
+  rankdir=TB;
+  node [shape=box, style=rounded];
+
+  "image_input" [shape=ellipse, color=green, label="image_input"];
+  "mask_input" [shape=ellipse, color=green, label="mask_input"];
+  "conv1_weight" [shape=diamond, color=blue, label="conv1_weight"];
+  "conv1_bias" [shape=diamond, color=blue, label="conv1_bias"];
+  "fc_bias" [shape=diamond, color=blue, label="fc_bias"];
+  "fc_weight" [shape=diamond, color=blue, label="fc_weight"];
+  "conv1" [label="conv1\n(Conv)"];
+  "relu1" [label="relu1\n(Relu)"];
+  "maxpool1" [label="maxpool1\n(MaxPool)"];
+  "global_avg_pool" [label="global_avg_pool\n(GlobalAveragePool)"];
+  "flatten" [label="flatten\n(Flatten)"];
+  "fc_classifier" [label="fc_classifier\n(MatMul)"];
+  "add_bias" [label="add_bias\n(Add)"];
+  "upsample" [label="upsample\n(Upsample)"];
+  "mask_attention" [label="mask_attention\n(Mul)"];
+  "seg_conv" [label="seg_conv\n(Conv)"];
+  "classification" [shape=ellipse, color=red, label="classification"];
+  "segmentation" [shape=ellipse, color=red, label="segmentation"];
+
+  "image_input" -> "conv1";
+  "conv1_weight" -> "conv1";
+  "conv1_bias" -> "conv1";
+  "conv1" -> "conv1_output";
+  "conv1_output" -> "relu1";
+  "relu1" -> "relu1_output";
+  "relu1_output" -> "maxpool1";
+  "maxpool1" -> "maxpool1_output";
+  "maxpool1_output" -> "global_avg_pool";
+  "global_avg_pool" -> "gap_output";
+  "gap_output" -> "flatten";
+  "flatten" -> "flatten_output";
+  "flatten_output" -> "fc_classifier";
+  "fc_weight" -> "fc_classifier";
+  "fc_classifier" -> "fc_output";
+  "fc_output" -> "add_bias";
+  "fc_bias" -> "add_bias";
+  "add_bias" -> "classification";
+  "maxpool1_output" -> "upsample";
+  "upsample" -> "upsample_output";
+  "upsample_output" -> "mask_attention";
+  "mask_input" -> "mask_attention";
+  "mask_attention" -> "masked_features";
+  "masked_features" -> "seg_conv";
+  "seg_conv" -> "segmentation";
+}

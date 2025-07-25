@@ -9,7 +9,7 @@ A minimal, **mathematically verifiable** ONNX runtime implementation in Rust.
 [![Formal Verification](https://github.com/jgalego/runnx/actions/workflows/formal-verification.yml/badge.svg)](https://github.com/jgalego/runnx/actions/workflows/formal-verification.yml)
 [![codecov](https://codecov.io/gh/jgalego/runnx/branch/main/graph/badge.svg)](https://codecov.io/gh/jgalego/runnx)
 
-![RunNX](runnx.jpg)
+![RunNX](assets/runnx.jpg)
 
 ## Overview
 
@@ -25,6 +25,7 @@ This project provides a minimal, educational ONNX runtime implementation focused
 
 - ✅ Dual Format Support: JSON and binary ONNX protobuf formats
 - ✅ Auto-detection: Automatic format detection based on file extension
+- ✅ **Graph Visualization**: Beautiful terminal ASCII art and Graphviz export
 - ✅ Basic tensor operations (`Add`, `Mul`, `MatMul`, `Conv`, `Relu`, `Sigmoid`, `Reshape`, `Transpose`)
 - ✅ **YOLO Model Support**: Essential operators for YOLO object detection models
   - `Concat`: Tensor concatenation for feature fusion
@@ -112,9 +113,194 @@ model.to_json_file("readable.json")?;  // Explicit JSON format
 cargo run --bin runnx-runner -- --model model.onnx --input input.json
 cargo run --bin runnx-runner -- --model model.json --input input.json
 
+# Show model summary and graph visualization
+cargo run --bin runnx-runner -- --model model.onnx --summary --graph
+
+# Generate Graphviz DOT file for professional diagrams
+cargo run --bin runnx-runner -- --model model.onnx --dot graph.dot
+
 # Run with async support
 cargo run --features async --bin runnx-runner -- --model model.onnx --input input.json
 ```
+
+## Graph Visualization
+
+RunNX provides comprehensive graph visualization capabilities to help you understand and debug ONNX model structures. You can visualize models both in the terminal and as publication-quality graphics.
+
+### Terminal Visualization
+
+Display beautiful ASCII art representations of your model directly in the terminal:
+
+```bash
+# Show visual graph representation
+./target/debug/runnx-runner --model model.onnx --graph
+
+# Show both model summary and graph
+./target/debug/runnx-runner --model model.onnx --summary --graph
+```
+
+#### Example Output
+
+Here's what the terminal visualization looks like for a complex neural network:
+
+```
+┌────────────────────────────────────────┐
+│       GRAPH: neural_network_demo       │
+└────────────────────────────────────────┘
+
+📥 INPUTS:
+   ┌─ image_input [1 × 3 × 224 × 224] (float32)
+   ┌─ mask_input [1 × 1 × 224 × 224] (float32)
+
+⚙️  INITIALIZERS:
+   ┌─ conv1_weight [64 × 3 × 7 × 7]
+   ┌─ conv1_bias [64]
+   ┌─ fc_weight [1000 × 512]
+   ┌─ fc_bias [1000]
+
+🔄 COMPUTATION FLOW:
+   │
+   ├─ Step 1: conv1
+   │  ┌─ Operation: Conv
+   │  ├─ Inputs:
+   │  │  └─ image_input
+   │  │  └─ conv1_weight
+   │  │  └─ conv1_bias
+   │  ├─ Outputs:
+   │  │  └─ conv1_output
+   │  └─ Attributes:
+   │     └─ kernel_shape: [7, 7]
+   │     └─ strides: [2, 2]
+   │     └─ pads: [3, 3, 3, 3]
+   │
+   ├─ Step 2: relu1
+   │  ┌─ Operation: Relu
+   │  ├─ Inputs:
+   │  │  └─ conv1_output
+   │  ├─ Outputs:
+   │  │  └─ relu1_output
+   │  └─ (no attributes)
+   
+   [... more steps ...]
+
+📤 OUTPUTS:
+   └─ classification [1 × 1000] (float32)
+   └─ segmentation [1 × 21 × 224 × 224] (float32)
+
+📊 STATISTICS:
+   ├─ Total nodes: 10
+   ├─ Input tensors: 2
+   ├─ Output tensors: 2
+   └─ Initializers: 4
+
+🎯 OPERATION SUMMARY:
+   ├─ Add: 1
+   ├─ Conv: 2
+   ├─ Flatten: 1
+   ├─ GlobalAveragePool: 1
+   ├─ MatMul: 1
+   ├─ MaxPool: 1
+   ├─ Mul: 1
+   ├─ Relu: 1
+   └─ Upsample: 1
+```
+
+### Graphviz Export
+
+Generate professional diagrams using DOT format for Graphviz:
+
+```bash
+# Generate DOT file for Graphviz
+./target/debug/runnx-runner --model model.onnx --dot graph.dot
+
+# Convert to PNG (requires Graphviz installation)
+dot -Tpng graph.dot -o graph.png
+
+# Convert to SVG for vector graphics
+dot -Tsvg graph.dot -o graph.svg
+
+# Convert to PDF for documents
+dot -Tpdf graph.dot -o graph.pdf
+```
+
+#### Example Graph Output
+
+The DOT format generates clean, professional diagrams with:
+- **Green ellipses** for input tensors
+- **Blue diamonds** for initializers (weights/biases)  
+- **Rectangular boxes** for operations
+- **Red ellipses** for output tensors
+- **Directed arrows** showing data flow
+
+![Complex Neural Network Graph](assets/complex_graph.png)
+
+*Example: Multi-task neural network with classification and segmentation branches*
+
+#### DOT Format Output
+
+The generated DOT file contains structured graph data that Graphviz uses to create the visualizations. Here's an excerpt of the DOT format:
+
+```dot
+digraph G {
+  rankdir=TB;
+  node [shape=box, style=rounded];
+
+  "image_input" [shape=ellipse, color=green, label="image_input"];
+  "mask_input" [shape=ellipse, color=green, label="mask_input"];
+  "conv1_weight" [shape=diamond, color=blue, label="conv1_weight"];
+  "conv1_bias" [shape=diamond, color=blue, label="conv1_bias"];
+  "conv1" [label="conv1\n(Conv)"];
+  "relu1" [label="relu1\n(Relu)"];
+  "classification" [shape=ellipse, color=red, label="classification"];
+  "segmentation" [shape=ellipse, color=red, label="segmentation"];
+
+  "image_input" -> "conv1";
+  "conv1_weight" -> "conv1";
+  "conv1_bias" -> "conv1";
+  "conv1" -> "relu1";
+  "relu1" -> "classification";
+  // ... additional connections
+}
+```
+
+The DOT format uses:
+- **Nodes**: Define graph elements with shapes, colors, and labels
+- **Edges**: Define connections with `->` arrows
+- **Attributes**: Control visual appearance and layout
+- **rankdir=TB**: Top-to-bottom layout direction
+
+For the complete DOT file example, see [`assets/complex_graph.dot`](assets/complex_graph.dot).
+
+### Programmatic Usage
+
+You can also generate visualizations programmatically:
+
+```rust
+use runnx::Model;
+
+let model = Model::from_file("model.onnx")?;
+
+// Print graph to terminal
+model.print_graph();
+
+// Generate DOT format
+let dot_content = model.to_dot();
+std::fs::write("graph.dot", dot_content)?;
+
+// The graph name box automatically adjusts to any length
+// Works with short names like "CNN" or very long names like
+// "SuperLongComplexNeuralNetworkGraphName"
+```
+
+### Features
+
+- **Dynamic Layout**: Graph title box automatically adjusts to accommodate any name length
+- **Topological Sorting**: Shows correct execution order with dependency resolution
+- **Cycle Detection**: Gracefully handles graphs with cycles  
+- **Rich Information**: Displays shapes, data types, attributes, and statistics
+- **Color Coding**: Visual distinction between different node types in DOT format
+- **Multiple Formats**: Terminal ASCII art and Graphviz-compatible DOT export
+- **Professional Quality**: Publication-ready graphics for papers and presentations
 
 ## Architecture
 

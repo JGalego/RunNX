@@ -15,6 +15,8 @@ struct Args {
     output_path: Option<String>,
     verbose: bool,
     show_summary: bool,
+    show_graph: bool,
+    save_dot: Option<String>,
 }
 
 impl Args {
@@ -31,6 +33,8 @@ impl Args {
         let mut output_path = None;
         let mut verbose = false;
         let mut show_summary = false;
+        let mut show_graph = false;
+        let mut save_dot = None;
 
         let mut i = 1;
         while i < args.len() {
@@ -64,6 +68,17 @@ impl Args {
                     show_summary = true;
                     i += 1;
                 }
+                "--graph" | "-g" => {
+                    show_graph = true;
+                    i += 1;
+                }
+                "--dot" | "-d" => {
+                    if i + 1 >= args.len() {
+                        return Err("--dot requires a value".to_string());
+                    }
+                    save_dot = Some(args[i + 1].clone());
+                    i += 2;
+                }
                 "--help" | "-h" => {
                     print_help();
                     std::process::exit(0);
@@ -82,6 +97,8 @@ impl Args {
             output_path,
             verbose,
             show_summary,
+            show_graph,
+            save_dot,
         })
     }
 }
@@ -152,6 +169,32 @@ fn main() {
     if args.show_summary {
         println!("\nModel Summary:");
         println!("{}", model.summary());
+        if args.input_path.is_none() && !args.show_graph {
+            return;
+        }
+    }
+
+    // Show model graph if requested
+    if args.show_graph {
+        model.print_graph();
+        if args.input_path.is_none() && args.save_dot.is_none() {
+            return;
+        }
+    }
+
+    // Save DOT format if requested
+    if let Some(dot_path) = &args.save_dot {
+        let dot_content = model.to_dot();
+        match std::fs::write(dot_path, dot_content) {
+            Ok(()) => {
+                println!("Graph DOT format saved to: {dot_path}");
+                println!("You can generate a PNG with: dot -Tpng {dot_path} -o graph.png");
+            }
+            Err(e) => {
+                eprintln!("Error saving DOT file: {e}");
+                std::process::exit(1);
+            }
+        }
         if args.input_path.is_none() {
             return;
         }
@@ -314,9 +357,11 @@ fn print_help() {
     println!("OPTIONS:");
     println!("    -m, --model <MODEL>      Path to the ONNX model file (.json format)");
     println!("    -i, --input <INPUT>      Path to input data file (.json format)");
-    println!("    -o, --output <OUTPUT>    Path to save output data (.json format)");
+    println!("    -o, --output <o>    Path to save output data (.json format)");
     println!("    -v, --verbose            Enable verbose logging");
     println!("    -s, --summary            Show model summary");
+    println!("    -g, --graph              Show model graph visualization");
+    println!("    -d, --dot <FILE>         Save graph in DOT format for Graphviz");
     println!("    -h, --help               Print this help message");
     println!();
     println!("EXAMPLES:");
@@ -331,6 +376,16 @@ fn print_help() {
     println!();
     println!("    # Show model summary only");
     println!("    runnx-runner --model model.json --summary");
+    println!();
+    println!("    # Show model graph visualization only");
+    println!("    runnx-runner --model model.json --graph");
+    println!();
+    println!("    # Show both summary and graph");
+    println!("    runnx-runner --model model.json --summary --graph");
+    println!();
+    println!("    # Generate DOT file for Graphviz");
+    println!("    runnx-runner --model model.json --dot graph.dot");
+    println!("    dot -Tpng graph.dot -o graph.png");
     println!();
     println!("INPUT FORMAT (JSON):");
     println!("    {{");
