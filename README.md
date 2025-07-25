@@ -25,7 +25,11 @@ This project provides a minimal, educational ONNX runtime implementation focused
 
 - ✅ Dual Format Support: JSON and binary ONNX protobuf formats
 - ✅ Auto-detection: Automatic format detection based on file extension
-- ✅ **Graph Visualization**: Beautiful terminal ASCII art and Graphviz export
+- ✅ **Graph Visualization**: Beautiful terminal ASCII art and professional Graphviz export
+  - Terminal visualization with dynamic layout and rich formatting
+  - DOT format export for publication-quality diagrams (PNG, SVG, PDF)
+  - CLI integration with `--graph` and `--dot` options
+  - Topological sorting and cycle detection
 - ✅ Basic tensor operations (`Add`, `Mul`, `MatMul`, `Conv`, `Relu`, `Sigmoid`, `Reshape`, `Transpose`)
 - ✅ **YOLO Model Support**: Essential operators for YOLO object detection models
   - `Concat`: Tensor concatenation for feature fusion
@@ -68,7 +72,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-runnx = "0.1.1"
+runnx = "0.2.0"
 ```
 
 ### Basic Usage
@@ -843,14 +847,34 @@ This project is licensed under
 ### ✅ Completed
 - [x] **Dual Format Support**: Both JSON and binary ONNX protobuf formats
 - [x] **Auto-detection**: Automatic format detection based on file extension  
+- [x] **Graph Visualization**: Terminal ASCII art and professional Graphviz export
 - [x] **Core Operators**: Add, Mul, MatMul, Conv, ReLU, Sigmoid, Reshape, Transpose
+- [x] **YOLO Operators**: Concat, Slice, Upsample, MaxPool, Softmax, NonMaxSuppression
 - [x] **Formal Verification**: Mathematical specifications with Why3
-- [x] **CLI Tool**: Command-line runner for model inference
+- [x] **CLI Tool**: Command-line runner with visualization capabilities
 
 ### 🚧 Planned
-- [ ] Add more operators (Softmax, BatchNorm, etc.)
+- [ ] Add more operators (BatchNorm, LayerNorm, etc.)
 - [ ] GPU acceleration support
 - [ ] Quantization support
 - [ ] Model optimization passes
 - [ ] WASM compilation target
 - [ ] Python bindings
+
+## Documentation
+
+### 📚 Additional Resources
+
+- **[Release Notes](RELEASE_NOTES_0.2.0.md)** - What's new in the latest version
+- **[Complete Changelog](CHANGELOG.md)** - Full history of changes
+- **[Release History](docs/releases/)** - All previous release notes
+- **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to RunNX
+- **[Development QA](docs/DEVELOPMENT_QA.md)** - Quality assurance guidelines
+- **[Formal Verification](FORMAL_VERIFICATION.md)** - Mathematical verification details
+
+### 🔗 External Links
+
+- **[API Documentation](https://docs.rs/runnx)** - Complete API reference
+- **[Crates.io](https://crates.io/crates/runnx)** - Package information
+- **[GitHub Repository](https://github.com/JGalego/runnx)** - Source code and issues
+- **[CI/CD Status](https://github.com/JGalego/runnx/actions)** - Build and test results
