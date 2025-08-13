@@ -11,8 +11,10 @@ fn main() -> runnx::Result<()> {
     println!("🎯 RunNX YOLOv8 Object Detection Demo");
     println!("====================================");
 
-    // Initialize logging to see operator warnings
-    env_logger::init();
+    // Initialize logging to see operator warnings (only if RUST_LOG is set)
+    if std::env::var("RUST_LOG").is_ok() {
+        env_logger::init();
+    }
 
     // Step 1: Load the YOLOv8n model
     let model = load_yolov8n_model()?;

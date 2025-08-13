@@ -27,8 +27,10 @@ fn main() -> runnx::Result<()> {
     println!("🎯 RunNX YOLOv8 Object Detection with Bounding Box Visualization");
     println!("================================================================");
 
-    // Initialize logging
-    env_logger::init();
+    // Initialize logging (only if RUST_LOG is set for performance)
+    if std::env::var("RUST_LOG").is_ok() {
+        env_logger::init();
+    }
 
     // Step 1: Load the YOLOv8n model
     let model = load_yolov8n_model()?;
@@ -193,7 +195,7 @@ fn run_inference(
     println!("🔮 Running YOLOv8 inference...");
     println!("   📥 Input name: 'images'");
 
-    // Debug: Check input tensor stats before inference
+    // Debug: Check input tensor stats before inference (only first time)
     let input_data = input_tensor.data();
     let input_slice = input_data.as_slice().unwrap();
     let input_min = input_slice.iter().fold(f32::INFINITY, |a, &b| a.min(b));
@@ -207,7 +209,7 @@ fn run_inference(
     inputs.insert("images".to_string(), input_tensor);
 
     println!("   ⚙️  Creating RunNX runtime...");
-    let runtime = runtime::Runtime::with_debug();
+    let runtime = runtime::Runtime::new();
 
     println!("   🚀 Executing inference...");
     let outputs = runtime.execute(&model.graph, inputs)?;
@@ -215,24 +217,26 @@ fn run_inference(
     for (name, tensor) in &outputs {
         println!("   📤 Output '{}': shape {:?}", name, tensor.shape());
 
-        // Debug: Check if the output tensor contains meaningful data
-        let output_data = tensor.data();
-        let output_slice = output_data.as_slice().unwrap();
-        let output_min = output_slice.iter().fold(f32::INFINITY, |a, &b| a.min(b));
-        let output_max = output_slice
-            .iter()
-            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let output_avg = output_slice.iter().sum::<f32>() / output_slice.len() as f32;
-        println!("   🔍 Output '{name}' stats: min={output_min:.6}, max={output_max:.6}, avg={output_avg:.6}");
+        // Only do detailed analysis for main output and if RUST_LOG is set
+        if (name == "output0" || name.contains("output")) && std::env::var("RUST_LOG").is_ok() {
+            let output_data = tensor.data();
+            let output_slice = output_data.as_slice().unwrap();
+            let output_min = output_slice.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+            let output_max = output_slice
+                .iter()
+                .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            let output_avg = output_slice.iter().sum::<f32>() / output_slice.len() as f32;
+            println!("   🔍 Output '{name}' stats: min={output_min:.6}, max={output_max:.6}, avg={output_avg:.6}");
 
-        // Check if output looks like it's just anchor grid data
-        let first_10 = &output_slice[0..10.min(output_slice.len())];
-        println!("   🔍 Output '{name}' first 10 values: {first_10:?}");
+            // Check if output looks like it's just anchor grid data
+            let first_10 = &output_slice[0..10.min(output_slice.len())];
+            println!("   🔍 Output '{name}' first 10 values: {first_10:?}");
 
-        // Look for signs that inference actually ran
-        let has_variety = output_max - output_min > 10.0; // Real inference should have wide range
-        let has_large_values = output_max > 5.0 || output_min < -5.0; // Logits should have large values
-        println!("   🧪 Output '{name}' analysis: variety={has_variety}, large_values={has_large_values}");
+            // Look for signs that inference actually ran
+            let has_variety = output_max - output_min > 10.0; // Real inference should have wide range
+            let has_large_values = output_max > 5.0 || output_min < -5.0; // Logits should have large values
+            println!("   🧪 Output '{name}' analysis: variety={has_variety}, large_values={has_large_values}");
+        }
     }
 
     Ok(outputs)
@@ -274,21 +278,24 @@ fn post_process_detections(
     let output_data = output_tensor.data();
     let mut detections = Vec::new();
 
-    // Quick debug check of tensor data
+    // Quick debug check of tensor data (only if debug logging enabled)
     let flat_data = output_data.as_slice().unwrap();
-    println!(
-        "   🔍 First 10 raw tensor values: {:?}",
-        &flat_data[0..10.min(flat_data.len())]
-    );
+    if std::env::var("RUST_LOG").is_ok() {
+        println!(
+            "   🔍 First 10 raw tensor values: {:?}",
+            &flat_data[0..10.min(flat_data.len())]
+        );
 
-    // Check if we're getting anchor grid pattern (indicating inference didn't run properly)
-    let appears_to_be_grid = flat_data[0] == 0.00625 && flat_data[1] == 0.01875;
-    if appears_to_be_grid {
-        println!("   ⚠️  WARNING: Output appears to be anchor grid pattern - inference may not have run!");
+        // Check if we're getting anchor grid pattern (indicating inference didn't run properly)
+        let appears_to_be_grid = flat_data[0] == 0.00625 && flat_data[1] == 0.01875;
+        if appears_to_be_grid {
+            println!("   ⚠️  WARNING: Output appears to be anchor grid pattern - inference may not have run!");
+        }
     }
 
     let mut debug_printed = false;
     let mut max_seen_conf = 0.0f32;
+    let debug_enabled = std::env::var("RUST_LOG").is_ok();
 
     // Process each anchor
     for anchor_idx in 0..num_anchors {
@@ -318,8 +325,8 @@ fn post_process_detections(
             max_seen_conf = max_class_conf;
         }
 
-        // Debug: Print details for first few anchors only
-        if !debug_printed && anchor_idx < 3 {
+        // Debug: Print details for first few anchors only (and only if debug enabled)
+        if debug_enabled && !debug_printed && anchor_idx < 3 {
             println!("   🧪 Debug anchor {anchor_idx}: cx={cx:.6}, cy={cy:.6}, w={w:.6}, h={h:.6}, max_conf={max_class_conf:.6}");
 
             if anchor_idx == 2 {
@@ -390,8 +397,8 @@ fn convert_to_image_coordinates(
         let final_x2 = center_x + box_width / 2.0;
         let final_y2 = center_y + box_height / 2.0;
 
-        // Debug first detection only
-        if i == 0 {
+        // Debug first detection only (and only if debug enabled)
+        if i == 0 && std::env::var("RUST_LOG").is_ok() {
             println!("   🔍 Debug coordinate conversion for detection {i}: norm_x1={x1:.6}, norm_y1={y1:.6}, norm_w={width:.6}, norm_h={height:.6}");
             println!("      scale_factor={scale_factor:.3}, center_x={center_x:.1}, center_y={center_y:.1}, box_width={box_width:.1}, box_height={box_height:.1}");
             println!("      final coords: ({final_x1:.1}, {final_y1:.1}) to ({final_x2:.1}, {final_y2:.1})");
@@ -404,8 +411,8 @@ fn convert_to_image_coordinates(
         let final_x2 = final_x2.max(0.0).min(original_size.0 as f32 - 1.0);
         let final_y2 = final_y2.max(0.0).min(original_size.1 as f32 - 1.0);
 
-        // Debug after clipping
-        if i == 0 {
+        // Debug after clipping (only if debug enabled)
+        if i == 0 && std::env::var("RUST_LOG").is_ok() {
             println!("      after clipping: ({final_x1:.1}, {final_y1:.1}) to ({final_x2:.1}, {final_y2:.1})");
         }
         // Update detection with final coordinates in [x1, y1, x2, y2] format
