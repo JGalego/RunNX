@@ -139,12 +139,11 @@ impl Tensor {
     /// }
     /// ```
     pub fn add(&self, other: &Tensor) -> Result<Tensor> {
-        if self.shape() != other.shape() {
-            return Err(OnnxError::shape_mismatch(self.shape(), other.shape()));
-        }
+        // Handle broadcasting following ONNX/NumPy rules
+        let (left, right) = self.broadcast_tensors(other)?;
 
         Ok(Tensor {
-            data: &self.data + &other.data,
+            data: &left.data + &right.data,
         })
     }
 
@@ -166,12 +165,192 @@ impl Tensor {
     /// }
     /// ```
     pub fn mul(&self, other: &Tensor) -> Result<Tensor> {
+        // Handle broadcasting following ONNX/NumPy rules
+        let (left, right) = self.broadcast_tensors(other)?;
+
+        Ok(Tensor {
+            data: &left.data * &right.data,
+        })
+    }
+
+    /// Broadcast two tensors to compatible shapes following ONNX/NumPy rules
+    fn broadcast_tensors(&self, other: &Tensor) -> Result<(Tensor, Tensor)> {
+        let self_shape = self.shape();
+        let other_shape = other.shape();
+
+        // If shapes are identical, no broadcasting needed
+        if self_shape == other_shape {
+            return Ok((self.clone(), other.clone()));
+        }
+
+        // Special case: scalar broadcasting (empty shape)
+        if other_shape.is_empty() {
+            if other.data.len() != 1 {
+                return Err(OnnxError::invalid_dimensions(format!(
+                    "Scalar tensor must have exactly 1 element, got {}",
+                    other.data.len()
+                )));
+            }
+            let scalar_value = other.data.iter().next().unwrap();
+            let broadcasted_data = ndarray::Array::from_elem(self.data.raw_dim(), *scalar_value);
+            let broadcasted_other = Tensor {
+                data: broadcasted_data,
+            };
+            return Ok((self.clone(), broadcasted_other));
+        }
+
+        if self_shape.is_empty() {
+            if self.data.len() != 1 {
+                return Err(OnnxError::invalid_dimensions(format!(
+                    "Scalar tensor must have exactly 1 element, got {}",
+                    self.data.len()
+                )));
+            }
+            let scalar_value = self.data.iter().next().unwrap();
+            let broadcasted_data = ndarray::Array::from_elem(other.data.raw_dim(), *scalar_value);
+            let broadcasted_self = Tensor {
+                data: broadcasted_data,
+            };
+            return Ok((broadcasted_self, other.clone()));
+        }
+
+        // NumPy-style broadcasting: align dimensions from the right
+        let self_ndim = self_shape.len();
+        let other_ndim = other_shape.len();
+        let max_ndim = self_ndim.max(other_ndim);
+
+        // Create broadcasted shapes by padding with 1s on the left
+        let mut self_bc_shape = vec![1; max_ndim];
+        let mut other_bc_shape = vec![1; max_ndim];
+
+        // Fill in actual dimensions from the right
+        for i in 0..self_ndim {
+            self_bc_shape[max_ndim - self_ndim + i] = self_shape[i];
+        }
+        for i in 0..other_ndim {
+            other_bc_shape[max_ndim - other_ndim + i] = other_shape[i];
+        }
+
+        // Check broadcasting compatibility and compute result shape
+        let mut result_shape = vec![0; max_ndim];
+        for i in 0..max_ndim {
+            let dim_a = self_bc_shape[i];
+            let dim_b = other_bc_shape[i];
+
+            if dim_a == dim_b {
+                result_shape[i] = dim_a;
+            } else if dim_a == 1 {
+                result_shape[i] = dim_b;
+            } else if dim_b == 1 {
+                result_shape[i] = dim_a;
+            } else {
+                return Err(OnnxError::invalid_dimensions(format!(
+                    "Cannot broadcast shapes {self_shape:?} and {other_shape:?}: incompatible dimensions {dim_a} and {dim_b}"
+                )));
+            }
+        }
+
+        // Broadcast tensors to the result shape
+        let self_broadcasted = self.broadcast_to_shape(&result_shape)?;
+        let other_broadcasted = other.broadcast_to_shape(&result_shape)?;
+
+        Ok((self_broadcasted, other_broadcasted))
+    }
+
+    /// Broadcast this tensor to a target shape
+    fn broadcast_to_shape(&self, target_shape: &[usize]) -> Result<Tensor> {
+        let current_shape = self.shape();
+
+        if current_shape == target_shape {
+            return Ok(self.clone());
+        }
+
+        // Use ndarray's broadcast functionality
+        let mut broadcasted_data = self.data.clone();
+
+        // Reshape to match the target dimensionality by adding size-1 dimensions
+        let current_ndim = current_shape.len();
+        let target_ndim = target_shape.len();
+
+        if target_ndim > current_ndim {
+            // Need to add dimensions at the front
+            let mut new_shape = vec![1; target_ndim - current_ndim];
+            new_shape.extend_from_slice(current_shape);
+
+            // Reshape the array to have the correct number of dimensions
+            let new_dim = ndarray::IxDyn(&new_shape);
+            broadcasted_data = broadcasted_data
+                .to_shape(new_dim)
+                .map_err(|e| {
+                    OnnxError::invalid_dimensions(format!(
+                        "Failed to reshape for broadcasting: {e}"
+                    ))
+                })?
+                .into_owned();
+        }
+
+        // Now broadcast to the target shape
+        let target_dim = ndarray::IxDyn(target_shape);
+
+        // Create a view that can be broadcast
+        let broadcasted_view = broadcasted_data.broadcast(target_dim).ok_or_else(|| {
+            OnnxError::invalid_dimensions(format!(
+                "Failed to broadcast from {:?} to {:?}",
+                broadcasted_data.shape(),
+                target_shape
+            ))
+        })?;
+
+        // Convert the broadcasted view to an owned array
+        let result_data = broadcasted_view.to_owned();
+
+        Ok(Tensor { data: result_data })
+    }
+
+    /// Element-wise division
+    pub fn div(&self, other: &Tensor) -> Result<Tensor> {
+        // Handle broadcasting following ONNX/NumPy rules
+        let (left, right) = self.broadcast_tensors(other)?;
+
+        Ok(Tensor {
+            data: &left.data / &right.data,
+        })
+    }
+
+    /// Element-wise subtraction
+    pub fn sub(&self, other: &Tensor) -> Result<Tensor> {
+        // Handle broadcasting following ONNX/NumPy rules
+        let (left, right) = self.broadcast_tensors(other)?;
+
+        Ok(Tensor {
+            data: &left.data - &right.data,
+        })
+    }
+
+    /// Element-wise exponential
+    pub fn exp(&self) -> Result<Tensor> {
+        Ok(Tensor {
+            data: self.data.mapv(|x| x.exp()),
+        })
+    }
+
+    /// Element-wise square root
+    pub fn sqrt(&self) -> Result<Tensor> {
+        Ok(Tensor {
+            data: self.data.mapv(|x| x.sqrt()),
+        })
+    }
+
+    /// Element-wise power
+    pub fn pow(&self, other: &Tensor) -> Result<Tensor> {
         if self.shape() != other.shape() {
             return Err(OnnxError::shape_mismatch(self.shape(), other.shape()));
         }
 
         Ok(Tensor {
-            data: &self.data * &other.data,
+            data: ndarray::Zip::from(&self.data)
+                .and(&other.data)
+                .map_collect(|&a, &b| a.powf(b)),
         })
     }
 
@@ -253,6 +432,108 @@ impl Tensor {
         Ok(Tensor { data: reshaped })
     }
 
+    /// Transpose the tensor with optional axis permutation
+    ///
+    /// If `perm` is None, performs default transpose (reverse all axes).
+    /// If `perm` is provided, permutes axes according to the specification.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runnx::Tensor;
+    ///
+    /// let tensor = Tensor::from_shape_vec(&[2, 3], vec![1., 2., 3., 4., 5., 6.]).unwrap();
+    /// let result = tensor.transpose_with_perm(None).unwrap();
+    /// assert_eq!(result.shape(), &[3, 2]);
+    /// ```
+    pub fn transpose_with_perm(&self, perm: Option<&[usize]>) -> Result<Tensor> {
+        match perm {
+            Some(axes) => {
+                // Validate permutation
+                if axes.len() != self.ndim() {
+                    return Err(OnnxError::invalid_dimensions(format!(
+                        "Permutation length {} doesn't match tensor dimensions {}",
+                        axes.len(),
+                        self.ndim()
+                    )));
+                }
+
+                // Check that all axes are valid
+                for &axis in axes {
+                    if axis >= self.ndim() {
+                        return Err(OnnxError::invalid_dimensions(format!(
+                            "Axis {} is out of bounds for tensor with {} dimensions",
+                            axis,
+                            self.ndim()
+                        )));
+                    }
+                }
+
+                // Check that all axes are unique
+                let mut sorted_axes = axes.to_vec();
+                sorted_axes.sort_unstable();
+                for (i, &axis) in sorted_axes.iter().enumerate().take(self.ndim()) {
+                    if axis != i {
+                        return Err(OnnxError::invalid_dimensions(
+                            "Permutation must be a valid permutation of axes".to_string(),
+                        ));
+                    }
+                }
+
+                // For simple permutations, handle common cases
+                if axes.len() == 2 {
+                    // 2D transpose
+                    if axes == [1, 0] {
+                        let transposed = self.data.t().to_owned();
+                        Ok(Tensor { data: transposed })
+                    } else if axes == [0, 1] {
+                        // Identity - no change
+                        Ok(self.clone())
+                    } else {
+                        return Err(OnnxError::invalid_dimensions(format!(
+                            "Invalid 2D permutation {axes:?}"
+                        )));
+                    }
+                } else if axes == (0..axes.len()).collect::<Vec<_>>() {
+                    // Identity permutation - no change needed
+                    Ok(self.clone())
+                } else {
+                    // General case: use ndarray's permuted_axes for any permutation
+                    let transposed = self.data.clone().permuted_axes(axes);
+                    Ok(Tensor { data: transposed })
+                }
+            }
+            None => {
+                // Default transpose: reverse all axes
+                let ndim = self.ndim();
+                if ndim == 0 {
+                    // 0-dimensional tensor - return as is
+                    Ok(self.clone())
+                } else if ndim == 1 {
+                    // 1-dimensional tensor - return as is (can't transpose)
+                    Ok(self.clone())
+                } else if ndim == 2 {
+                    // 2-dimensional tensor - use built-in transpose
+                    let transposed = self.data.t().to_owned();
+                    Ok(Tensor { data: transposed })
+                } else {
+                    // Multi-dimensional tensor - for now, just do 2D transpose if possible
+                    // or return error for truly multi-dimensional cases
+                    log::warn!("Multi-dimensional transpose without perm not fully supported, treating as 2D if possible");
+                    if ndim == 2 {
+                        let transposed = self.data.t().to_owned();
+                        Ok(Tensor { data: transposed })
+                    } else {
+                        // For higher dimensions, return error
+                        return Err(OnnxError::invalid_dimensions(format!(
+                            "Default transpose for {ndim}-dimensional tensors not supported. Use perm attribute to specify axis permutation."
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
     /// Transpose the tensor (swap axes)
     ///
     /// # Examples
@@ -265,14 +546,7 @@ impl Tensor {
     /// assert_eq!(transposed.shape(), &[3, 2]);
     /// ```
     pub fn transpose(&self) -> Result<Tensor> {
-        if self.ndim() != 2 {
-            return Err(OnnxError::invalid_dimensions(
-                "Transpose currently only supports 2D tensors",
-            ));
-        }
-
-        let transposed = self.data.t().to_owned();
-        Ok(Tensor { data: transposed })
+        self.transpose_with_perm(None)
     }
 
     /// Slice the tensor along specified axes
@@ -341,6 +615,10 @@ impl Tensor {
             }
             if e < 0 {
                 e += dim;
+            }
+            // Handle special case where e is i64::MAX or very large (means "end of dimension")
+            if e >= dim || e == i64::MAX {
+                e = dim;
             }
             if s < 0 || e > dim || s >= e {
                 return Err(OnnxError::invalid_dimensions(format!(
@@ -437,6 +715,78 @@ impl Tensor {
 
         let softmax_data = exp_data.mapv(|x| x / sum_exp);
         Ok(Tensor { data: softmax_data })
+    }
+
+    /// Concatenate tensors along a specified axis
+    ///
+    /// # Arguments
+    /// * `tensors` - Slice of tensors to concatenate (including self)
+    /// * `axis` - Axis along which to concatenate
+    ///
+    /// # Returns
+    /// * New tensor with concatenated result
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use runnx::Tensor;
+    /// use ndarray::Array2;
+    ///
+    /// let a = Tensor::from_array(Array2::from_shape_vec((2, 2), vec![1.0, 2.0, 3.0, 4.0]).unwrap());
+    /// let b = Tensor::from_array(Array2::from_shape_vec((2, 2), vec![5.0, 6.0, 7.0, 8.0]).unwrap());
+    /// let result = Tensor::concat(&[&a, &b], 0).unwrap();
+    /// assert_eq!(result.shape(), &[4, 2]);
+    /// ```
+    pub fn concat(tensors: &[&Tensor], axis: usize) -> Result<Tensor> {
+        if tensors.is_empty() {
+            return Err(OnnxError::invalid_dimensions(
+                "Cannot concatenate empty tensor list".to_string(),
+            ));
+        }
+
+        if tensors.len() == 1 {
+            return Ok(tensors[0].clone());
+        }
+
+        let first = tensors[0];
+        if axis >= first.ndim() {
+            return Err(OnnxError::invalid_dimensions(format!(
+                "Concatenation axis {} out of bounds for tensor with {} dimensions",
+                axis,
+                first.ndim()
+            )));
+        }
+
+        // Check that all tensors have compatible shapes
+        for (i, tensor) in tensors.iter().enumerate() {
+            if tensor.ndim() != first.ndim() {
+                return Err(OnnxError::invalid_dimensions(format!(
+                    "All tensors must have same number of dimensions: tensor 0 has {}, tensor {} has {}",
+                    first.ndim(), i, tensor.ndim()
+                )));
+            }
+
+            for (dim_idx, (&expected_size, &actual_size)) in
+                first.shape().iter().zip(tensor.shape().iter()).enumerate()
+            {
+                if dim_idx != axis && expected_size != actual_size {
+                    return Err(OnnxError::invalid_dimensions(format!(
+                        "Tensor shapes must match except on concatenation axis: dimension {dim_idx} expected size {expected_size}, got {actual_size}"
+                    )));
+                }
+            }
+        }
+
+        // Calculate output shape
+        let mut output_shape = first.shape().to_vec();
+        output_shape[axis] = tensors.iter().map(|t| t.shape()[axis]).sum();
+
+        // Perform concatenation using ndarray
+        let views: Vec<_> = tensors.iter().map(|t| t.data.view()).collect();
+        let concatenated = ndarray::concatenate(ndarray::Axis(axis), &views)
+            .map_err(|e| OnnxError::invalid_dimensions(format!("Concatenation failed: {e}")))?;
+
+        Ok(Tensor { data: concatenated })
     }
 }
 
@@ -597,7 +947,7 @@ mod tests {
         let b = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
         let result = a.add(&b);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Shape mismatch"));
+        assert!(result.unwrap_err().to_string().contains("Cannot broadcast"));
     }
 
     #[test]
@@ -626,7 +976,7 @@ mod tests {
         let b = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
         let result = a.mul(&b);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Shape mismatch"));
+        assert!(result.unwrap_err().to_string().contains("Cannot broadcast"));
     }
 
     #[test]
@@ -744,17 +1094,22 @@ mod tests {
 
     #[test]
     fn test_transpose_non_2d() {
-        // Test with 1D tensor
+        // Test with 1D tensor - should now succeed and return as-is
         let tensor = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
         let result = tensor.transpose();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("2D tensors"));
+        assert!(result.is_ok());
+        let transposed = result.unwrap();
+        assert_eq!(transposed.shape(), tensor.shape());
+        assert_eq!(transposed.data(), tensor.data());
 
-        // Test with 3D tensor
+        // Test with 3D tensor - should fail with helpful message
         let tensor = Tensor::from_array(Array3::from_elem((2, 3, 4), 1.0));
         let result = tensor.transpose();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("2D tensors"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("dimensional tensors not supported"));
     }
 
     #[test]
@@ -768,6 +1123,25 @@ mod tests {
         assert_eq!(data[[0, 1]], 3.0);
         assert_eq!(data[[1, 0]], 2.0);
         assert_eq!(data[[1, 1]], 4.0);
+    }
+
+    #[test]
+    fn test_transpose_4d() {
+        // Test 4D tensor with custom permutation [0, 2, 1, 3] (YOLOv8 case)
+        let tensor_4d = Tensor::from_shape_vec(
+            &[1, 4, 16, 8400],
+            (0..4 * 16 * 8400).map(|i| i as f32).collect(),
+        )
+        .unwrap();
+        let result_4d = tensor_4d.transpose_with_perm(Some(&[0, 2, 1, 3])).unwrap();
+
+        // Expected shape after [0, 2, 1, 3] permutation: [1, 16, 4, 8400]
+        assert_eq!(result_4d.shape(), &[1, 16, 4, 8400]);
+
+        // Test identity permutation
+        let identity_result = tensor_4d.transpose_with_perm(Some(&[0, 1, 2, 3])).unwrap();
+        assert_eq!(identity_result.shape(), &[1, 4, 16, 8400]);
+        assert_eq!(identity_result.data, tensor_4d.data);
     }
 
     #[test]
@@ -898,5 +1272,46 @@ mod tests {
         assert_eq!(sigmoid_result.shape(), &[2, 2]);
         // All values should be positive after ReLU and between 0 and 1 after sigmoid
         assert!(sigmoid_result.data().iter().all(|&x| x > 0.0 && x < 1.0));
+    }
+
+    #[test]
+    fn test_concat() {
+        // Test concatenation along axis 0
+        let a = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let b = Tensor::from_shape_vec(&[1, 2], vec![5.0, 6.0]).unwrap();
+        let c = Tensor::from_shape_vec(&[1, 2], vec![7.0, 8.0]).unwrap();
+
+        let result = Tensor::concat(&[&a, &b, &c], 0).unwrap();
+        assert_eq!(result.shape(), &[4, 2]);
+        let data = result.data().as_slice().unwrap();
+        assert_eq!(data, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+    }
+
+    #[test]
+    fn test_concat_axis1() {
+        // Test concatenation along axis 1
+        let a = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let b = Tensor::from_shape_vec(&[2, 1], vec![5.0, 6.0]).unwrap();
+
+        let result = Tensor::concat(&[&a, &b], 1).unwrap();
+        assert_eq!(result.shape(), &[2, 3]);
+
+        // Check the values using indexed access rather than as_slice
+        let expected = [1.0, 2.0, 5.0, 3.0, 4.0, 6.0];
+        for (i, &expected_val) in expected.iter().enumerate() {
+            let (row, col) = (i / 3, i % 3);
+            assert_eq!(result.data[[row, col]], expected_val);
+        }
+    }
+
+    #[test]
+    fn test_concat_single_tensor() {
+        // Test concatenation with single tensor
+        let a = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+        let result = Tensor::concat(&[&a], 0).unwrap();
+        assert_eq!(result.shape(), &[2, 2]);
+        let data = result.data().as_slice().unwrap();
+        assert_eq!(data, &[1.0, 2.0, 3.0, 4.0]);
     }
 }

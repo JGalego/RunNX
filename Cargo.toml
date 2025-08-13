@@ -30,6 +30,10 @@ prost = "0.13"
 log = "0.4"
 env_logger = "0.11"
 
+# Image processing for examples
+image = "0.25"
+imageproc = "0.25"
+
 # Optional features
 tokio = { version = "1.0", features = ["full"], optional = true }
 

@@ -81,10 +81,18 @@ pub fn from_graph_proto(graph_proto: &proto::GraphProto) -> Result<Graph> {
 
 /// Convert ONNX protobuf NodeProto to internal Node representation
 pub fn from_node_proto(node_proto: &proto::NodeProto) -> Result<Node> {
+    // Filter out empty string inputs (optional inputs in ONNX)
+    let inputs: Vec<String> = node_proto
+        .input
+        .iter()
+        .filter(|input| !input.is_empty())
+        .cloned()
+        .collect();
+
     let mut node = Node::new(
         node_proto.name.clone().unwrap_or_default(),
         node_proto.op_type.clone().unwrap_or_default(),
-        node_proto.input.clone(),
+        inputs,
         node_proto.output.clone(),
     );
 
@@ -187,6 +195,65 @@ pub fn from_tensor_proto(tensor_proto: &proto::TensorProto) -> Result<Tensor> {
                     for chunk in raw_data.chunks_exact(4) {
                         let bytes = [chunk[0], chunk[1], chunk[2], chunk[3]];
                         floats.push(f32::from_le_bytes(bytes));
+                    }
+                    floats
+                } else {
+                    return Err(OnnxError::model_load_error("Tensor missing data"));
+                }
+            } else {
+                return Err(OnnxError::model_load_error("Tensor missing data"));
+            };
+
+            Tensor::from_shape_vec(&shape, data)
+        }
+        proto::tensor_proto::DataType::Int64 => {
+            let data = if !tensor_proto.int64_data.is_empty() {
+                // Convert i64 to f32 for now (simplified approach)
+                tensor_proto.int64_data.iter().map(|&x| x as f32).collect()
+            } else if let Some(ref raw_data) = tensor_proto.raw_data {
+                if !raw_data.is_empty() {
+                    // Parse raw bytes as i64, then convert to f32
+                    if raw_data.len() % 8 != 0 {
+                        return Err(OnnxError::model_load_error(
+                            "Invalid raw data length for int64",
+                        ));
+                    }
+                    let mut floats = Vec::with_capacity(raw_data.len() / 8);
+                    for chunk in raw_data.chunks_exact(8) {
+                        let bytes = [
+                            chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6],
+                            chunk[7],
+                        ];
+                        let int_val = i64::from_le_bytes(bytes);
+                        floats.push(int_val as f32);
+                    }
+                    floats
+                } else {
+                    return Err(OnnxError::model_load_error("Tensor missing data"));
+                }
+            } else {
+                return Err(OnnxError::model_load_error("Tensor missing data"));
+            };
+
+            Tensor::from_shape_vec(&shape, data)
+        }
+        proto::tensor_proto::DataType::Int32 => {
+            let data = if !tensor_proto.int32_data.is_empty() {
+                // Convert i32 to f32 for now (simplified approach)
+                tensor_proto.int32_data.iter().map(|&x| x as f32).collect()
+            } else if let Some(ref raw_data) = tensor_proto.raw_data {
+                if !raw_data.is_empty() {
+                    // Parse raw bytes as i32, then convert to f32
+                    if raw_data.len() % 4 != 0 {
+                        return Err(OnnxError::model_load_error(
+                            "Invalid raw data length for int32",
+                        ));
+                    }
+                    let mut floats = Vec::with_capacity(raw_data.len() / 4);
+                    for chunk in raw_data.chunks_exact(4) {
+                        let bytes = [chunk[0], chunk[1], chunk[2], chunk[3]];
+                        let int_val = i32::from_le_bytes(bytes);
+                        floats.push(int_val as f32);
                     }
                     floats
                 } else {

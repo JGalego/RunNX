@@ -409,7 +409,9 @@ fn test_from_tensor_proto_double_data() -> Result<()> {
 
 #[test]
 fn test_from_tensor_proto_int32_data() -> Result<()> {
-    // Test tensor proto with int32 data type
+    #[test]
+fn test_from_tensor_proto_int32_data() -> Result<()> {
+    // Test tensor proto with int32 data type (now supported)
     let tensor_proto = proto::TensorProto {
         dims: vec![2, 2],
         data_type: Some(proto::tensor_proto::DataType::Int32 as i32),
@@ -421,14 +423,15 @@ fn test_from_tensor_proto_int32_data() -> Result<()> {
     assert!(result.is_ok());
     let tensor = result.unwrap();
     assert_eq!(tensor.shape(), &[2, 2]);
-
+    
     // Check data content
-    let expected = [1.0, 2.0, 3.0, 4.0];
+    let expected = vec![1.0, 2.0, 3.0, 4.0];
     for (actual, &expected) in tensor.data().iter().zip(expected.iter()) {
         assert!((actual - expected).abs() < 1e-6);
     }
 
     Ok(())
+}
 }
 
 #[test]
@@ -445,12 +448,7 @@ fn test_from_tensor_proto_int64_data() -> Result<()> {
     assert!(result.is_ok());
     let tensor = result.unwrap();
     assert_eq!(tensor.shape(), &[2, 2]);
-
-    // Check data content
-    let expected = [1.0, 2.0, 3.0, 4.0];
-    for (actual, &expected) in tensor.data().iter().zip(expected.iter()) {
-        assert!((actual - expected).abs() < 1e-6);
-    }
+    assert_eq!(tensor.data(), &[1.0, 2.0, 3.0, 4.0]); // Converted to f32
 
     Ok(())
 }
