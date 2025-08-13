@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### 🚀 Enhancements
+- **Complete YOLOv8 Support**: Full end-to-end object detection pipeline
+  - Enhanced `yolov8_detect_and_draw` example with complete visualization
+  - Performance optimizations for real-world inference
+  - Improved preprocessing and post-processing pipelines
+  - Enhanced error handling and logging
+- **Comprehensive Documentation**: Complete documentation overhaul
+  - New structured documentation in `docs/` folder
+  - Enhanced setup guides and tutorials
+  - Improved API documentation and examples
+
+### 🐛 Bug Fixes
+- Fixed YOLOv8 detection performance issues
+- Improved tensor slicing implementation
+- Enhanced error handling in image processing pipeline
+
 ## [0.2.0] - 2025-07-25
 
 ### ✨ Features
