@@ -1,8 +1,7 @@
 theory OperatorSpecs
-  use int.Int
-  use real.Real
   use array.Array
-
+  use int.Int
+  
   (* Type definitions for tensors *)
   type shape = array int
   type tensor_data = array real
@@ -16,12 +15,12 @@ theory OperatorSpecs
   (* Predicates for tensor validity *)
   predicate valid_tensor (t: tensor) =
     t.size >= 0 /\
-    length t.shape >= 1 /\
-    length t.data = t.size
+    Array.length t.shape >= 1 /\
+    Array.length t.data = t.size
 
   predicate same_shape (t1 t2: tensor) =
-    length t1.shape = length t2.shape /\
-    forall i. 0 <= i < length t1.shape -> t1.shape[i] = t2.shape[i]
+    Array.length t1.shape = Array.length t2.shape /\
+    forall i. 0 <= i < Array.length t1.shape -> t1.shape[i] = t2.shape[i]
 
   predicate broadcastable (t1 t2: tensor) =
     (* Simplified broadcasting: either same shape or one is scalar *)
@@ -96,11 +95,11 @@ theory OperatorSpecs
     valid_tensor input1 /\
     valid_tensor input2 /\
     valid_tensor output /\
-    0 <= axis < length input1.shape /\
-    length input1.shape = length input2.shape /\
-    length output.shape = length input1.shape /\
+    0 <= axis < Array.length input1.shape /\
+    Array.length input1.shape = Array.length input2.shape /\
+    Array.length output.shape = Array.length input1.shape /\
     (* All dimensions except axis must match *)
-    (forall i. 0 <= i < length input1.shape /\ i <> axis ->
+    (forall i. 0 <= i < Array.length input1.shape /\ i <> axis ->
       input1.shape[i] = input2.shape[i] /\
       output.shape[i] = input1.shape[i]) /\
     (* Output dimension at axis is sum of input dimensions *)
@@ -110,37 +109,37 @@ theory OperatorSpecs
   predicate slice_spec (input output: tensor) (starts ends: array int) =
     valid_tensor input /\
     valid_tensor output /\
-    length starts = length ends /\
-    length starts <= length input.shape /\
+    Array.length starts = Array.length ends /\
+    Array.length starts <= Array.length input.shape /\
     (* Valid slice ranges *)
-    (forall i. 0 <= i < length starts ->
+    (forall i. 0 <= i < Array.length starts ->
       0 <= starts[i] < ends[i] <= input.shape[i]) /\
     (* Output shape matches slice dimensions *)
-    (forall i. 0 <= i < length starts ->
+    (forall i. 0 <= i < Array.length starts ->
       output.shape[i] = ends[i] - starts[i])
 
   (* Upsample operator specification *)
   predicate upsample_spec (input output: tensor) (scale_factors: array real) =
     valid_tensor input /\
     valid_tensor output /\
-    length scale_factors = length input.shape /\
-    length output.shape = length input.shape /\
+    Array.length scale_factors = Array.length input.shape /\
+    Array.length output.shape = Array.length input.shape /\
     (* Scale factors must be positive *)
-    (forall i. 0 <= i < length scale_factors -> scale_factors[i] > 0.0) /\
+    (forall i. 0 <= i < Array.length scale_factors -> scale_factors[i] > 0.0) /\
     (* Output dimensions are scaled *)
-    (forall i. 0 <= i < length input.shape ->
+    (forall i. 0 <= i < Array.length input.shape ->
       output.shape[i] = real_to_int (int_to_real input.shape[i] * scale_factors[i]))
 
   (* MaxPool operator specification *)
   predicate maxpool_spec (input output: tensor) (kernel_size strides padding: array int) =
     valid_tensor input /\
     valid_tensor output /\
-    length kernel_size = length strides /\
-    length strides = length padding /\
+    Array.length kernel_size = Array.length strides /\
+    Array.length strides = Array.length padding /\
     (* Kernel size must be positive *)
-    (forall i. 0 <= i < length kernel_size -> kernel_size[i] > 0) /\
+    (forall i. 0 <= i < Array.length kernel_size -> kernel_size[i] > 0) /\
     (* Strides must be positive *)
-    (forall i. 0 <= i < length strides -> strides[i] > 0) /\
+    (forall i. 0 <= i < Array.length strides -> strides[i] > 0) /\
     (* Output contains maximum values from pooling windows *)
     forall i. 0 <= i < output.size ->
       exists j. 0 <= j < input.size /\
@@ -150,17 +149,17 @@ theory OperatorSpecs
   predicate nms_spec (boxes scores: tensor) (iou_threshold score_threshold: real) (indices: array int) =
     valid_tensor boxes /\
     valid_tensor scores /\
-    length boxes.shape = 2 /\
+    Array.length boxes.shape = 2 /\
     boxes.shape[1] = 4 /\ (* [N, 4] format *)
-    length scores.shape = 1 /\
+    Array.length scores.shape = 1 /\
     scores.shape[0] = boxes.shape[0] /\
     0.0 <= iou_threshold <= 1.0 /\
     score_threshold >= 0.0 /\
     (* Output indices are sorted by descending scores *)
-    (forall i j. 0 <= i < j < length indices ->
+    (forall i j. 0 <= i < j < Array.length indices ->
       scores.data[indices[i]] >= scores.data[indices[j]]) /\
     (* All selected boxes have IoU below threshold *)
-    (forall i j. 0 <= i < j < length indices ->
+    (forall i j. 0 <= i < j < Array.length indices ->
       iou_boxes boxes indices[i] indices[j] <= iou_threshold)
 
   (* Helper function for IoU calculation *)
@@ -200,8 +199,8 @@ theory OperatorSpecs
 
   (* Matrix multiplication specification *)
   predicate matrix_compatible (t1 t2: tensor) =
-    length t1.shape = 2 /\
-    length t2.shape = 2 /\
+    Array.length t1.shape = 2 /\
+    Array.length t2.shape = 2 /\
     t1.shape[1] = t2.shape[0]
 
   function matmul_element (t1 t2: tensor) (i j: int) : real =
@@ -219,7 +218,7 @@ theory OperatorSpecs
     valid_tensor input2 /\
     valid_tensor output /\
     matrix_compatible input1 input2 /\
-    length output.shape = 2 /\
+    Array.length output.shape = 2 /\
     output.shape[0] = input1.shape[0] /\
     output.shape[1] = input2.shape[1] /\
     output.size = output.shape[0] * output.shape[1] /\
@@ -285,8 +284,8 @@ theory OperatorSpecs
   predicate transpose_2d_spec (input output: tensor) =
     valid_tensor input /\
     valid_tensor output /\
-    length input.shape = 2 /\
-    length output.shape = 2 /\
+    Array.length input.shape = 2 /\
+    Array.length output.shape = 2 /\
     input.shape[0] = output.shape[1] /\
     input.shape[1] = output.shape[0] /\
     input.size = output.size /\
@@ -314,6 +313,170 @@ theory OperatorSpecs
   lemma reshape_preserves_data:
     forall input output: tensor, new_shape: shape.
     reshape_spec input output new_shape ->
+    forall i. 0 <= i < input.size -> input.data[i] = output.data[i]
+
+  (* Division operator specification *)
+  function div_element (a b: real) : real = a / b
+
+  predicate div_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    (input1.size = input2.size -> same_shape input2 output) /\
+    (* Divisor must be non-zero *)
+    (forall i. 0 <= i < input2.size -> input2.data[i] <> 0.0) /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = div_element input1.data[i] input2.data[i]
+
+  (* Subtraction operator specification *)
+  function sub_element (a b: real) : real = a - b
+
+  predicate sub_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    (input1.size = input2.size -> same_shape input2 output) /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = sub_element input1.data[i] input2.data[i]
+
+  (* Exponential operator specification *)
+  function exp_element (x: real) : real
+
+  predicate exp_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = exp_element input.data[i] /\
+      output.data[i] > 0.0
+
+  (* Square root operator specification *)
+  function sqrt_element (x: real) : real
+
+  predicate sqrt_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    (* Input values must be non-negative *)
+    (forall i. 0 <= i < input.size -> input.data[i] >= 0.0) /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = sqrt_element input.data[i] /\
+      output.data[i] >= 0.0
+
+  (* Power operator specification *)
+  function pow_element (base exponent: real) : real
+
+  predicate pow_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    (input1.size = input2.size -> same_shape input2 output) /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = pow_element input1.data[i] input2.data[i]
+
+  (* Identity operator specification *)
+  predicate identity_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    forall i. 0 <= i < output.size -> output.data[i] = input.data[i]
+
+  (* Cast operator specification *)
+  predicate cast_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    input.size = output.size /\
+    (* Values are preserved with potential type conversion *)
+    forall i. 0 <= i < output.size -> 
+      output.data[i] = input.data[i] \/ 
+      (abs (output.data[i] - input.data[i]) < 1e-6)
+
+  (* Squeeze operator specification *)
+  predicate squeeze_spec (input output: tensor) (axes: array int) =
+    valid_tensor input /\
+    valid_tensor output /\
+    input.size = output.size /\
+    (* All specified axes must have dimension 1 *)
+    (forall i. 0 <= i < Array.length axes -> 
+      0 <= axes[i] < Array.length input.shape /\
+      input.shape[axes[i]] = 1) /\
+    (* Output has fewer dimensions *)
+    Array.length output.shape = Array.length input.shape - Array.length axes
+
+  (* Unsqueeze operator specification *)
+  predicate unsqueeze_spec (input output: tensor) (axes: array int) =
+    valid_tensor input /\
+    valid_tensor output /\
+    input.size = output.size /\
+    (* Output has more dimensions *)
+    Array.length output.shape = Array.length input.shape + Array.length axes /\
+    (* New dimensions have size 1 *)
+    (forall i. 0 <= i < Array.length axes ->
+      0 <= axes[i] < Array.length output.shape /\
+      output.shape[axes[i]] = 1)
+
+  (* ReduceMean operator specification *)
+  predicate reduce_mean_spec (input output: tensor) (axes: array int) (keepdims: bool) =
+    valid_tensor input /\
+    valid_tensor output /\
+    (* Reduced dimensions have mean values *)
+    (forall i. 0 <= i < output.size ->
+      exists count: int. count > 0 /\
+      output.data[i] * (int_to_real count) = 
+        sum_elements_along_axes input axes i)
+
+  (* Helper function for reduce operations *)
+  function sum_elements_along_axes (input: tensor) (axes: array int) (output_idx: int) : real
+
+  (* Batch Normalization operator specification *)
+  predicate batch_norm_spec (input scale bias mean variance output: tensor) (epsilon: real) =
+    valid_tensor input /\
+    valid_tensor scale /\
+    valid_tensor bias /\
+    valid_tensor mean /\
+    valid_tensor variance /\
+    valid_tensor output /\
+    same_shape input output /\
+    epsilon > 0.0 /\
+    (* All variance values must be non-negative *)
+    (forall i. 0 <= i < variance.size -> variance.data[i] >= 0.0) /\
+    forall i. 0 <= i < output.size ->
+      let normalized = (input.data[i] - mean.data[i]) / sqrt_element (variance.data[i] + epsilon) in
+      output.data[i] = scale.data[i] * normalized + bias.data[i]
+
+  (* Properties for mathematical operators *)
+  lemma div_inverse_property:
+    forall x y result back: tensor.
+    div_spec x y result /\ mul_spec result y back ->
+    forall i. 0 <= i < x.size -> abs (x.data[i] - back.data[i]) < 1e-6
+
+  lemma sub_inverse_property:
+    forall x y result back: tensor.
+    sub_spec x y result /\ add_spec result y back ->
+    forall i. 0 <= i < x.size -> abs (x.data[i] - back.data[i]) < 1e-6
+
+  lemma exp_positivity:
+    forall input output: tensor.
+    exp_spec input output ->
+    forall i. 0 <= i < output.size -> output.data[i] > 0.0
+
+  lemma sqrt_monotonic:
+    forall input1 input2 output1 output2: tensor.
+    sqrt_spec input1 output1 /\ sqrt_spec input2 output2 /\
+    same_shape input1 input2 ->
+    forall i. 0 <= i < input1.size ->
+      input1.data[i] <= input2.data[i] -> output1.data[i] <= output2.data[i]
+
+  lemma identity_preservation:
+    forall input output: tensor.
+    identity_spec input output ->
     forall i. 0 <= i < input.size -> input.data[i] = output.data[i]
 
 end

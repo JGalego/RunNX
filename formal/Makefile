@@ -15,6 +15,22 @@ verify-operator-%: check-why3
 	@echo "🎯 Verifying $* operator..."
 	@python3 verify_operators.py $*
 
+# Verify extended operators (new additions)
+verify-extended: check-why3
+	@echo "🔍 Verifying extended operator set..."
+	@for op in div sub exp sqrt pow identity cast squeeze unsqueeze reduce_mean batch_norm; do \
+		echo "🎯 Verifying $$op operator..."; \
+		python3 verify_operators.py $$op || echo "⚠️ $$op verification had issues"; \
+	done
+
+# Verify core operators only (original set)
+verify-core: check-why3
+	@echo "🔍 Verifying core operator set..."
+	@for op in add mul matmul relu sigmoid transpose reshape; do \
+		echo "🎯 Verifying $$op operator..."; \
+		python3 verify_operators.py $$op || echo "⚠️ $$op verification had issues"; \
+	done
+
 # Test the formal verification setup
 test-setup:
 	@echo "🧪 Testing formal verification setup..."

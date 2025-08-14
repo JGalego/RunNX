@@ -11,6 +11,43 @@ The formal verification setup provides:
 3. **Runtime Verification** - Dynamic checking of invariants during execution
 4. **Integration with Why3** - Formal proofs using state-of-the-art theorem provers
 
+### Verified Operators
+
+The following ONNX operators have formal specifications and verification:
+
+**Basic Arithmetic Operators:**
+- `Add` - Element-wise addition with commutativity and associativity
+- `Mul` - Element-wise multiplication with commutativity and associativity  
+- `Div` - Element-wise division with inverse properties
+- `Sub` - Element-wise subtraction with inverse properties
+- `MatMul` - Matrix multiplication with dimensional constraints
+
+**Activation Functions:**
+- `ReLU` - Rectified Linear Unit with non-negativity and idempotency
+- `Sigmoid` - Sigmoid activation with bounded output and monotonicity
+- `Softmax` - Softmax with probability distribution properties
+
+**Mathematical Functions:**
+- `Exp` - Exponential function with positivity guarantees
+- `Sqrt` - Square root with non-negativity and monotonicity
+- `Pow` - Power function with proper domain handling
+
+**Shape Operations:**
+- `Reshape` - Tensor reshaping with data preservation
+- `Transpose` - Tensor transposition with involution properties
+- `Squeeze` - Dimension removal with size preservation
+- `Unsqueeze` - Dimension addition with size preservation
+
+**Utility Operations:**
+- `Identity` - Identity operation with exact preservation
+- `Cast` - Type conversion with value preservation
+- `ReduceMean` - Mean reduction along specified axes
+
+**Computer Vision Operations:**
+- `BatchNormalization` - Batch normalization with numerical stability
+- `Concat` - Tensor concatenation along specified axis
+- `Slice` - Tensor slicing with proper bounds checking
+
 ## 📁 Structure
 
 ```

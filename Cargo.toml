@@ -58,6 +58,14 @@ formal-verification = []  # Enable formal verification checks and contracts
 name = "inference_benchmark"
 harness = false
 
+[[bench]]
+name = "operator_benchmark"
+harness = false
+
+[[bench]]
+name = "cv_benchmark"
+harness = false
+
 [lib]
 name = "runnx"
 path = "src/lib.rs"

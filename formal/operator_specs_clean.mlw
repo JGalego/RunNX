@@ -1,0 +1,81 @@
+theory TensorTypes
+  use array.Array
+  use int.Int
+  
+  (* Type definitions for tensors *)
+  type shape = array int
+  type tensor_data = array real
+  
+  type tensor = {
+    shape: shape;
+    data: tensor_data;
+    size: int;
+  }
+
+  (* Predicates for tensor validity using only int operations *)
+  predicate valid_tensor (t: tensor) =
+    t.size >= 0 /\
+    Array.length t.shape >= 1 /\
+    Array.length t.data = t.size
+
+  predicate same_shape (t1 t2: tensor) =
+    Array.length t1.shape = Array.length t2.shape /\
+    forall i. 0 <= i < Array.length t1.shape -> t1.shape[i] = t2.shape[i]
+
+  predicate broadcastable (t1 t2: tensor) =
+    (* Simplified broadcasting: either same shape or one is scalar *)
+    same_shape t1 t2 \/ t1.size = 1 \/ t2.size = 1
+end
+
+theory RealOperations
+  use TensorTypes
+  use real.Real
+
+  (* Addition operator specification *)
+  function add_element (a b: real) : real = a + b
+
+  predicate add_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    (input1.size = input2.size -> same_shape input2 output) /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = add_element input1.data[i] input2.data[i]
+
+  (* Other real operations *)
+  function mul_element (a b: real) : real = a * b
+  
+  predicate mul_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    (input1.size = input2.size -> same_shape input2 output) /\
+    forall i. 0 <= i < output.size ->
+      output.data[i] = mul_element input1.data[i] input2.data[i]
+end
+
+theory IntegerOperations  
+  use TensorTypes
+  use int.Int
+  
+  (* Shape operations using only integers *)
+  predicate reshape_valid (input output: tensor) (new_shape: shape) =
+    valid_tensor input /\
+    input.size = output.size /\
+    output.shape = new_shape
+
+  predicate concat_valid (input1 input2 output: tensor) (axis: int) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    0 <= axis < Array.length input1.shape /\
+    Array.length input1.shape = Array.length input2.shape /\
+    Array.length output.shape = Array.length input1.shape /\
+    output.size = input1.size + input2.size /\
+    (forall i. 0 <= i < Array.length input1.shape /\ i <> axis ->
+      input1.shape[i] = input2.shape[i] /\ output.shape[i] = input1.shape[i])
+end
