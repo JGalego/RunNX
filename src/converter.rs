@@ -631,4 +631,142 @@ mod converter_tests {
             .to_string()
             .contains("missing type information"));
     }
+
+    #[test]
+    fn test_protobuf_conversion_edge_cases() {
+        // Test conversion from empty graph proto
+        let graph_proto = proto::GraphProto {
+            node: vec![],
+            name: Some("empty_graph".to_string()),
+            initializer: vec![],
+            sparse_initializer: vec![],
+            doc_string: None,
+            input: vec![],
+            output: vec![],
+            value_info: vec![],
+            quantization_annotation: vec![],
+            metadata_props: vec![],
+        };
+
+        let result = from_graph_proto(&graph_proto).unwrap();
+        assert_eq!(result.name, "empty_graph");
+        assert!(result.nodes.is_empty());
+        assert!(result.inputs.is_empty());
+        assert!(result.outputs.is_empty());
+        assert!(result.initializers.is_empty());
+    }
+
+    #[test]
+    fn test_tensor_proto_edge_cases() {
+        // Test tensor proto with empty shape
+        let tensor_proto = proto::TensorProto {
+            dims: vec![],
+            data_type: Some(proto::tensor_proto::DataType::Float as i32),
+            segment: None,
+            float_data: vec![42.0],
+            int32_data: vec![],
+            string_data: vec![],
+            int64_data: vec![],
+            name: Some("scalar".to_string()),
+            doc_string: None,
+            raw_data: None,
+            external_data: vec![],
+            data_location: None,
+            double_data: vec![],
+            uint64_data: vec![],
+            metadata_props: vec![],
+        };
+
+        let result = from_tensor_proto(&tensor_proto).unwrap();
+        assert_eq!(result.shape(), &[] as &[usize]);
+        assert_eq!(result.data().as_slice().unwrap(), &[42.0]);
+    }
+
+    #[test]
+    fn test_unsupported_data_types() {
+        // Test unsupported Double data type in tensor proto
+        let tensor_proto = proto::TensorProto {
+            dims: vec![2],
+            data_type: Some(proto::tensor_proto::DataType::Double as i32),
+            segment: None,
+            float_data: vec![],
+            int32_data: vec![],
+            string_data: vec![],
+            int64_data: vec![],
+            name: Some("double_tensor".to_string()),
+            doc_string: None,
+            raw_data: None,
+            external_data: vec![],
+            data_location: None,
+            double_data: vec![1.0, 2.0],
+            uint64_data: vec![],
+            metadata_props: vec![],
+        };
+
+        let result = from_tensor_proto(&tensor_proto);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Double"));
+    }
+
+    #[test]
+    fn test_file_io_errors() {
+        // Test loading non-existent file
+        let result = load_onnx_model("nonexistent_file.onnx");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to read ONNX file"));
+    }
+
+    #[test]
+    fn test_round_trip_with_initializers() {
+        // Create model with initializers
+        let mut graph = Graph::new("test_graph".to_string());
+
+        let input = TensorSpec::new("input".to_string(), vec![Some(2), Some(2)]);
+        let output = TensorSpec::new("output".to_string(), vec![Some(2), Some(2)]);
+        graph.add_input(input);
+        graph.add_output(output);
+
+        let node = Node::new(
+            "add_node".to_string(),
+            "Add".to_string(),
+            vec!["input".to_string(), "weights".to_string()],
+            vec!["output".to_string()],
+        );
+        graph.add_node(node);
+
+        // Add initializers
+        let weights = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        graph.add_initializer("weights".to_string(), weights);
+
+        let original_model = Model::new(graph);
+
+        // Convert to proto and back
+        let proto = to_model_proto(&original_model).unwrap();
+        let converted_model = from_model_proto(&proto).unwrap();
+
+        // Verify initializers are preserved
+        assert_eq!(
+            original_model.graph.initializers.len(),
+            converted_model.graph.initializers.len()
+        );
+        assert!(converted_model.graph.initializers.contains_key("weights"));
+
+        // Note: attributes are not preserved in round-trip conversion by design
+        for (orig_node, conv_node) in original_model
+            .graph
+            .nodes
+            .iter()
+            .zip(converted_model.graph.nodes.iter())
+        {
+            assert_eq!(orig_node.name, conv_node.name);
+            assert_eq!(orig_node.op_type, conv_node.op_type);
+            assert_eq!(orig_node.inputs, conv_node.inputs);
+            assert_eq!(orig_node.outputs, conv_node.outputs);
+            // The current implementation skips attributes in round-trip conversion for simplicity
+            assert_eq!(conv_node.attributes.len(), 0);
+        }
+    }
 }
