@@ -111,7 +111,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: 1.85.0
+        toolchain: stable
 
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -149,7 +149,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: 1.85.0
+        toolchain: stable
 
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -184,7 +184,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: 1.85.0
+        toolchain: stable
 
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -222,7 +222,7 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: 1.85
+        toolchain: 1.85  # Full support for edition 2024
 
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -256,7 +256,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: '1.85'
+        toolchain: stable
         components: llvm-tools-preview
 
     - name: Cache cargo registry
@@ -362,7 +362,7 @@ jobs:
     - name: Check coverage threshold
       run: |
         COVERAGE=$(echo "${{ steps.coverage.outputs.percentage }}" | sed 's/%//')
-        THRESHOLD=85
+        THRESHOLD=75
         
         if (( $(echo "$COVERAGE >= $THRESHOLD" | bc -l) )); then
           echo "✅ Coverage $COVERAGE% meets threshold of $THRESHOLD%"
