@@ -434,7 +434,7 @@ jobs:
   test-models:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v5
       
       - name: Install Rust
         uses: actions-rs/toolchain@v1
