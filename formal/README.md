@@ -11,23 +11,47 @@ The formal verification setup provides:
 3. **Runtime Verification** - Dynamic checking of invariants during execution
 4. **Integration with Why3** - Formal proofs using state-of-the-art theorem provers
 
+### Verified Operators
+
+The following ONNX operators have formal specifications and verification:
+
+**Basic Arithmetic Operators:**
+- `Add` - Element-wise addition with broadcasting support
+- `Mul` - Element-wise multiplication with broadcasting support  
+- `Div` - Element-wise division with zero-division protection
+- `Sub` - Element-wise subtraction with broadcasting support
+
+**Activation Functions:**
+- `ReLU` - Rectified Linear Unit with non-negativity guarantee
+
+**Mathematical Functions:**
+- `Exp` - Exponential function with proper mathematical definition
+- `Sqrt` - Square root with non-negativity requirement
+- `Pow` - Power function with element-wise operation
+
+**Shape Operations:**
+- `Reshape` - Tensor reshaping with data preservation guarantee
+
+**Utility Operations:**
+- `Identity` - Identity operation with exact preservation
+
 ## 📁 Structure
 
 ```
 formal/
-├── operator_specs.mlw         # Why3 specifications for ONNX operators
-├── verify_operators.py        # Python bridge for verification
-├── Makefile                   # Automation scripts
-├── test-verification.sh       # Shell script for testing verification
-├── why3-wrapper.sh           # Why3 execution wrapper
-└── README.md                 # This file
+├── tensors.mlw               # Why3 tensor type definitions and basic predicates
+├── operators.mlw             # Why3 specifications for 10 verified ONNX operators
+├── verify_operators.py       # Python verification bridge with specific operator checking
+├── Makefile                  # Automation scripts for verification
+├── test-verification.sh      # Shell script for testing verification
+└── README.md                # This file
 ```
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Rust 1.81+
+- Rust 1.85+
 - Python 3.8+
 - Why3 (optional, for formal proofs)
 
@@ -64,45 +88,42 @@ make verify-script
 
 Our specifications cover:
 
-- **Element-wise operations**: Addition, multiplication with commutativity and associativity
-- **Matrix multiplication**: Associativity and distributivity laws
-- **Activation functions**: ReLU (idempotency, monotonicity) and Sigmoid (boundedness)
-- **Shape operations**: Reshape and transpose with invariant preservation
-- **Numerical stability**: Bounds checking and overflow prevention
-- **YOLO operators**: Softmax, Concat, Slice, Upsample, MaxPool, NonMaxSuppression with probability and shape guarantees
+- **Element-wise operations**: Addition, multiplication, subtraction, division with broadcasting support
+- **Activation functions**: ReLU with non-negativity guarantee  
+- **Mathematical functions**: Exponential, square root, power operations
+- **Shape operations**: Reshape with data preservation
+- **Utility operations**: Identity operation with exact preservation
 
 ### Mathematical Properties Verified
 
 #### Addition
-- **Commutativity**: `a + b = b + a`
-- **Associativity**: `(a + b) + c = a + (b + c)`
-- **Identity**: `a + 0 = a`
+- **Broadcasting**: Compatible tensor shapes with automatic broadcasting
+- **Element-wise correctness**: `output[i] = input1[i] + input2[i]`
+- **Shape preservation**: Output shape matches primary input shape
 
-#### Matrix Multiplication  
-- **Associativity**: `(A × B) × C = A × (B × C)`
-- **Distributivity**: `A × (B + C) = A × B + A × C`
+#### Multiplication  
+- **Broadcasting**: Compatible tensor shapes with automatic broadcasting
+- **Element-wise correctness**: `output[i] = input1[i] * input2[i]`
+- **Commutativity**: Preserved through element-wise definition
 
 #### ReLU Activation
-- **Idempotency**: `ReLU(ReLU(x)) = ReLU(x)`
-- **Monotonicity**: `x ≤ y ⇒ ReLU(x) ≤ ReLU(y)`
 - **Non-negativity**: `∀i: ReLU(x)[i] ≥ 0`
+- **Definition correctness**: `ReLU(x)[i] = max(0, x[i])`
+- **Shape preservation**: Output shape exactly matches input shape
 
-#### Sigmoid Activation
-- **Boundedness**: `∀i: 0 < σ(x)[i] < 1`
-- **Monotonicity**: `x < y ⇒ σ(x) < σ(y)`
-- **Symmetry**: `σ(-x) = 1 - σ(x)`
+#### Division
+- **Zero-division protection**: `∀i: input2[i] ≠ 0`
+- **Element-wise correctness**: `output[i] = input1[i] / input2[i]`
+- **Broadcasting support**: Compatible with different tensor shapes
 
-#### Softmax Activation (YOLO)
-- **Probability distribution**: `∑ softmax(x)[i] = 1.0`
-- **Boundedness**: `∀i: 0 < softmax(x)[i] < 1`
-- **Numerical stability**: `softmax(x) = softmax(x - max(x))`
+#### Mathematical Functions
+- **Exponential**: `exp(x)[i] = e^(x[i])` with proper mathematical definition
+- **Square Root**: `sqrt(x)[i] = √(x[i])` with non-negativity requirement `x[i] ≥ 0`
+- **Power**: `pow(x,y)[i] = x[i]^(y[i])` with element-wise operation
 
-#### YOLO Object Detection Operators
-- **Concatenation**: Shape preservation and data integrity
-- **Slicing**: Bounds checking and subset properties
-- **Upsampling**: Scale factor validation and shape scaling
-- **MaxPooling**: Monotonicity preservation
-- **Non-Maximum Suppression**: Score ordering and IoU threshold guarantees
+#### Shape Operations
+- **Reshape**: Data preservation `input.data = output.data` with new shape
+- **Identity**: Exact preservation `input[i] = output[i]` for all elements
 
 ## 🧪 Property-Based Testing
 
@@ -126,41 +147,37 @@ proptest! {
     }
 }
 
-// Example: Test YOLO softmax probability distribution
+// Example: Test ReLU non-negativity property
 proptest! {
     #[test]
-    fn test_softmax_probability_distribution(
-        data in prop::collection::vec(prop::num::f32::NORMAL, 1..20)
+    fn test_relu_non_negativity(
+        data in prop::collection::vec(prop::num::f32::ANY, 1..20)
     ) {
         if let Ok(tensor) = Tensor::from_shape_vec(&[data.len()], data) {
-            if let Ok(softmax_result) = tensor.softmax() {
-                // Test 1: Sum should equal 1.0
-                let sum: f32 = softmax_result.data().iter().sum();
-                prop_assert!((sum - 1.0).abs() < 1e-5);
-                
-                // Test 2: All values should be positive and < 1.0
-                for &value in softmax_result.data().iter() {
-                    prop_assert!(value > 0.0 && value < 1.0);
+            if let Ok(relu_result) = tensor.relu() {
+                // Test: All ReLU outputs should be non-negative
+                for &value in relu_result.data().iter() {
+                    prop_assert!(value >= 0.0);
                 }
             }
         }
     }
 }
 
-// Example: Test YOLO softmax numerical stability
+// Example: Test addition broadcasting
 proptest! {
     #[test]
-    fn test_softmax_numerical_stability(
-        data in prop::collection::vec(prop::num::f32::NORMAL, 1..10),
-        shift in prop::num::f32::NORMAL
+    fn test_add_broadcasting(
+        data1 in prop::collection::vec(prop::num::f32::NORMAL, 1..10),
+        data2 in prop::collection::vec(prop::num::f32::NORMAL, 1..10)
     ) {
-        // Softmax should be invariant under constant shifts
-        let softmax1 = tensor.softmax().unwrap();
-        let shifted_tensor = apply_constant_shift(&tensor, shift);
-        let softmax2 = shifted_tensor.softmax().unwrap();
-        
-        for (a, b) in softmax1.data().iter().zip(softmax2.data().iter()) {
-            prop_assert!((a - b).abs() < 1e-5);
+        if let Ok(tensor1) = Tensor::from_shape_vec(&[data1.len()], data1) {
+            if let Ok(tensor2) = Tensor::from_shape_vec(&[data2.len()], data2) {
+                if let Ok(add_result) = tensor1.add(&tensor2) {
+                    // Test: Result shape should match the larger input
+                    prop_assert_eq!(add_result.len(), tensor1.len().max(tensor2.len()));
+                }
+            }
         }
     }
 }
@@ -236,8 +253,10 @@ The setup supports multiple theorem provers:
 Generate verification conditions:
 
 ```bash
-why3 prove -P alt-ergo operator_specs.mlw
-why3 prove -P z3 operator_specs.mlw
+why3 prove -P alt-ergo tensors.mlw
+why3 prove -P alt-ergo operators.mlw
+why3 prove -P z3 tensors.mlw
+why3 prove -P z3 operators.mlw
 ```
 
 ### Interactive Proofs
@@ -300,7 +319,7 @@ why3 config list-provers
 why3 config add-prover alt-ergo /usr/local/bin/alt-ergo
 
 # Method 4: Use any available prover
-why3 prove operator_specs.mlw  # Without specifying -P alt-ergo
+why3 prove tensors.mlw operators.mlw  # Verify both tensor types and operators
 ```
 
 Our verification scripts are designed to gracefully handle missing provers and will automatically detect available ones.

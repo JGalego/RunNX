@@ -200,10 +200,31 @@ impl Runtime {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        // Log input shapes for debugging
+        if self.debug {
+            for (i, tensor) in input_tensors.iter().enumerate() {
+                log::debug!("  Input {}: shape {:?}", i, tensor.shape());
+            }
+        }
+
         // Execute the operator
         let op_type = node.get_operator_type()?;
         let output_tensors =
-            operators::execute_operator(&op_type, &input_tensors, &node.attributes)?;
+            operators::execute_operator(&op_type, &input_tensors, &node.attributes).map_err(
+                |e| {
+                    OnnxError::runtime_error(format!(
+                        "Failed to execute {:?} ({}): {}",
+                        op_type, node.name, e
+                    ))
+                },
+            )?;
+
+        // Log output shapes for debugging
+        if self.debug {
+            for (i, tensor) in output_tensors.iter().enumerate() {
+                log::debug!("  Output {}: shape {:?}", i, tensor.shape());
+            }
+        }
 
         // Store output tensors
         if output_tensors.len() != node.outputs.len() {

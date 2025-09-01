@@ -260,8 +260,8 @@ impl contracts::YoloOperatorContracts for Tensor {
         &self,
         starts: &[i64],
         ends: &[i64],
-        _axes: Option<&[i64]>,
-        _steps: Option<&[i64]>,
+        axes: Option<&[i64]>,
+        steps: Option<&[i64]>,
     ) -> Result<Tensor> {
         // Precondition checks
         if starts.len() != ends.len() {
@@ -278,10 +278,7 @@ impl contracts::YoloOperatorContracts for Tensor {
             }
         }
 
-        // For now, return error as slice is not fully implemented
-        Err(crate::error::OnnxError::unsupported_operation(
-            "Slice operator not fully implemented".to_string(),
-        ))
+        self.slice(starts, ends, axes, steps)
     }
 
     fn upsample_with_contracts(&self, scale_factors: &[f32]) -> Result<Tensor> {
@@ -586,6 +583,7 @@ mod tests {
     };
     use super::property_tests::*;
     use crate::tensor::Tensor;
+    use ndarray::Array1;
 
     #[test]
     fn test_addition_contracts() {
@@ -680,6 +678,15 @@ mod tests {
         // Invalid slice: mismatched array lengths
         let result = tensor.slice_with_contracts(&[1], &[2, 3], None, None);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_slice_contracts() {
+        let tensor = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0, 4.0]));
+        let result = tensor.slice_with_contracts(&[1], &[3], None, None).unwrap();
+        assert_eq!(result.shape(), &[2]);
+        let data = result.data().as_slice().unwrap();
+        assert_eq!(data, &[2.0, 3.0]);
     }
 
     #[test]

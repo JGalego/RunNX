@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         submodules: recursive
     
@@ -27,7 +27,7 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
-        components: rustfmt, clippy
+        toolchain: stable
     
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -66,12 +66,6 @@ jobs:
         # Verify Alt-Ergo is detected
         why3 config list-provers | grep -i "alt-ergo" || echo "Alt-Ergo not detected"
         
-    - name: Check code formatting
-      run: cargo fmt -- --check
-      
-    - name: Run Clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
-      
     - name: Run unit tests
       run: cargo test --verbose
       

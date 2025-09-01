@@ -17,6 +17,7 @@ Thumbs.db
 *.log
 
 # Temporary files
+*.profraw
 *.tmp
 *.temp
 

@@ -1,0 +1,108 @@
+(*
+  Formal Specification for Tensor Types in RunNX
+  
+  This file defines the mathematical foundation for tensors used in ONNX operations.
+  It provides type definitions and basic predicates that form the building blocks
+  for more complex operator specifications.
+*)
+
+theory TensorTypes
+  (* Import necessary Why3 libraries *)
+  use array.Array  (* For array operations and indexing *)
+  use int.Int      (* For integer arithmetic and comparisons *)
+  
+  (* 
+    TENSOR TYPE DEFINITIONS
+    
+    A tensor is a multi-dimensional array with:
+    - shape: dimensions of the tensor (e.g., [2, 3] for 2x3 matrix)
+    - data: the actual numeric values stored in row-major order
+    
+    The total size (number of elements) is computed from the shape when needed.
+  *)
+  
+  (* Shape represents the dimensions of a tensor (e.g., [2, 3, 4] for 3D tensor) *)
+  type shape = array int
+  
+  (* Data contains the actual floating-point values in the tensor *)
+  type data = array real
+  
+  (* 
+    A tensor combines shape information with data storage.
+    Example: A 2x3 matrix would have:
+    - shape = [2, 3] 
+    - data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0] (6 elements total)
+    
+    The total size is computed as the product of all dimensions in the shape.
+  *)
+  type tensor = {
+    shape: shape;  (* Dimensions of the tensor *)
+    data: data;    (* Actual values stored in row-major order *)
+  }
+  
+  (*
+    TENSOR SIZE COMPUTATION
+    
+    For now, we'll use a simplified approach that works with Why3.
+    We assume the data array length directly represents the tensor size,
+    which should match the product of shape dimensions.
+    
+    A more complete implementation would compute the actual product,
+    but this requires more advanced Why3 features.
+  *)
+  function tensor_size (t: tensor) : int = Array.length t.data
+
+  (*
+    TENSOR VALIDITY PREDICATE
+    
+    Ensures a tensor is well-formed by checking:
+    1. All dimensions are positive (cannot have zero or negative dimensions)
+    2. Shape has at least one dimension (scalars are 1D with shape [1])
+    3. Data array length matches the computed size from shape
+    
+    This prevents malformed tensors that could cause undefined behavior.
+    Note: We now compute the expected size from the shape, eliminating
+    the possibility of size/shape inconsistency.
+  *)
+  predicate valid_tensor (t: tensor) =
+    Array.length t.shape >= 1 /\                               (* At least one dimension *)
+    (forall i: int. 0 <= i < Array.length t.shape ->          (* All dimensions positive *)
+      t.shape[i] > 0) /\
+    Array.length t.data = tensor_size t                        (* Data size matches computed size *)
+
+  (*
+    SHAPE COMPARISON PREDICATE
+    
+    Two tensors have the same shape if:
+    1. They have the same number of dimensions
+    2. Each corresponding dimension has the same size
+    
+    Example: [2, 3] and [2, 3] are same shape
+             [2, 3] and [3, 2] are different shapes
+             [2, 3] and [2, 3, 1] are different shapes (different rank)
+  *)
+  predicate same_shape (t1 t2: tensor) =
+    Array.length t1.shape = Array.length t2.shape /\           (* Same number of dimensions *)
+    forall i: int. 0 <= i < Array.length t1.shape ->          (* For each dimension index *)
+      t1.shape[i] = t2.shape[i]                               (* Corresponding sizes match *)
+
+  (*
+    BROADCASTING COMPATIBILITY PREDICATE
+    
+    Tensors are broadcastable if they can be used together in element-wise operations.
+    This follows NumPy/ONNX broadcasting rules:
+    1. Same shape tensors are always compatible
+    2. Scalar tensors (size 1) can broadcast to any shape
+    3. More complex broadcasting rules could be added here
+    
+    Example: [2, 3] + [2, 3] ✓ (same shape)
+             [2, 3] + [1] ✓ (scalar broadcasts)
+             [1] + [2, 3] ✓ (scalar broadcasts)
+             
+    Note: We now use tensor_size function instead of accessing a size field.
+  *)
+  predicate broadcastable (t1 t2: tensor) =
+    same_shape t1 t2 \/                        (* Either same shape *)
+    tensor_size t1 = 1 \/                      (* Or first tensor is scalar *)
+    tensor_size t2 = 1                         (* Or second tensor is scalar *)
+end

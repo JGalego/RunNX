@@ -15,6 +15,22 @@ verify-operator-%: check-why3
 	@echo "🎯 Verifying $* operator..."
 	@python3 verify_operators.py $*
 
+# Verify extended operators (new additions)
+verify-extended: check-why3
+	@echo "🔍 Verifying extended operator set..."
+	@for op in div sub exp sqrt pow identity cast squeeze unsqueeze reduce_mean batch_norm; do \
+		echo "🎯 Verifying $$op operator..."; \
+		python3 verify_operators.py $$op || echo "⚠️ $$op verification had issues"; \
+	done
+
+# Verify core operators only (original set)
+verify-core: check-why3
+	@echo "🔍 Verifying core operator set..."
+	@for op in add mul matmul relu sigmoid transpose reshape; do \
+		echo "🎯 Verifying $$op operator..."; \
+		python3 verify_operators.py $$op || echo "⚠️ $$op verification had issues"; \
+	done
+
 # Test the formal verification setup
 test-setup:
 	@echo "🧪 Testing formal verification setup..."
@@ -57,8 +73,10 @@ verify: check-why3
 	@why3 config detect || echo "⚠️ Could not detect provers"
 	@echo "Available provers:"
 	@why3 config list-provers || echo "⚠️ Could not list provers"
-	@echo "Attempting verification with available prover..."
-	@why3 prove operator_specs.mlw || echo "⚠️ Some operator proofs failed"
+	@echo "Verifying tensor specifications..."
+	@why3 prove tensors.mlw || echo "⚠️ Some tensor proofs failed"
+	@echo "Verifying operator specifications..."
+	@why3 prove operators.mlw || echo "⚠️ Some operator proofs failed"
 	@echo "✅ Formal verification completed"
 
 # Run property-based tests
@@ -105,7 +123,7 @@ clean:
 # Interactive Why3 IDE
 ide: check-why3
 	@echo "🚀 Starting Why3 IDE..."
-	@why3 ide operator_specs.mlw
+	@why3 ide simple_specs.mlw
 
 # Help target
 help:

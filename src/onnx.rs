@@ -228,7 +228,7 @@ pub struct NodeProto {
 }
 /// IntIntListEntryProto follows the pattern for cross-proto-version maps.
 /// See <https://developers.google.com/protocol-buffers/docs/proto3#maps>
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct IntIntListEntryProto {
     #[prost(int64, optional, tag = "1")]
     pub key: ::core::option::Option<i64>,
@@ -295,7 +295,7 @@ pub struct ShardedDimProto {
 }
 /// SimpleShardedDimProto: Indicates that N blocks are divided into M shards.
 /// N is allowed to be symbolic where M is required to be a constant.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SimpleShardedDimProto {
     /// This field MUST be present for this version of the IR.
     /// Number of shards to split dim into.
@@ -308,7 +308,7 @@ pub struct SimpleShardedDimProto {
 /// Nested message and enum types in `SimpleShardedDimProto`.
 pub mod simple_sharded_dim_proto {
     /// Dimension value to be sharded.
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Dim {
         #[prost(int64, tag = "1")]
         DimValue(i64),
@@ -522,7 +522,7 @@ pub struct ModelProto {
     pub configuration: ::prost::alloc::vec::Vec<DeviceConfigurationProto>,
 }
 /// DeviceConfigurationProto describes a multi-device configuration for a model.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeviceConfigurationProto {
     /// This field MUST be present for this version of the IR.
     /// Name of the configuration.
@@ -538,7 +538,7 @@ pub struct DeviceConfigurationProto {
 }
 /// StringStringEntryProto follows the pattern for cross-proto-version maps.
 /// See <https://developers.google.com/protocol-buffers/docs/proto3#maps>
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct StringStringEntryProto {
     #[prost(string, optional, tag = "1")]
     pub key: ::core::option::Option<::prost::alloc::string::String>,
@@ -715,7 +715,7 @@ pub mod tensor_proto {
     /// For very large tensors, we may want to store them in chunks, in which
     /// case the following fields will specify the segment that is stored in
     /// the current TensorProto.
-    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Segment {
         #[prost(int64, optional, tag = "1")]
         pub begin: ::core::option::Option<i64>,
@@ -938,7 +938,7 @@ pub struct TensorShapeProto {
 }
 /// Nested message and enum types in `TensorShapeProto`.
 pub mod tensor_shape_proto {
-    #[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Dimension {
         /// Standard denotation can optionally be used to denote tensor
         /// dimensions with standard semantic descriptions to ensure
@@ -952,7 +952,7 @@ pub mod tensor_shape_proto {
     }
     /// Nested message and enum types in `Dimension`.
     pub mod dimension {
-        #[derive(Clone, PartialEq, ::prost::Oneof)]
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
         pub enum Value {
             #[prost(int64, tag = "1")]
             DimValue(i64),
@@ -1055,7 +1055,7 @@ pub mod type_proto {
 /// Operator Sets
 ///
 /// OperatorSets are uniquely identified by a (domain, opset_version) pair.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct OperatorSetIdProto {
     /// The domain of the operator set being identified.
     /// The empty string ("") or absence of this field implies the operator

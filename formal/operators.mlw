@@ -1,0 +1,813 @@
+(*
+  Formal Specification for ONNX Operators in RunNX
+  
+  This file defines the formal specifications for ONNX operators supported by RunNX.
+  It provides precise mathematical definitions and properties for tensor operations,
+  ensuring correctness and enabling formal verification of the runtime implementation.
+*)
+
+theory OperatorSpecs
+  (* Import necessary Why3 libraries *)
+  use array.Array  (* For array operations and indexing *)
+  use int.Int      (* For integer arithmetic and comparisons *)
+
+  (*
+    TENSOR TYPE DEFINITIONS
+    
+    Note: This duplicates some definitions from tensors.mlw for now.
+    In a complete implementation, these would be imported from tensors.mlw
+    to ensure consistency across the formal specification.
+  *)
+  
+  (* Shape represents the dimensions of a tensor (e.g., [2, 3, 4] for 3D tensor) *)
+  type shape = array int
+  
+  (* Data contains the actual floating-point values in the tensor *)
+  type tensor_data = array real
+  
+  (* 
+    A tensor combines shape information with data storage and size.
+    Example: A 2x3 matrix would have:
+    - shape = [2, 3] 
+    - data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0] (6 elements total)
+    - size = 6
+  *)
+  type tensor = {
+    shape: shape;        (* Dimensions of the tensor *)
+    data: tensor_data;   (* Actual values stored in row-major order *)
+    size: int;          (* Total number of elements *)
+  }
+
+  (*
+    TENSOR VALIDITY PREDICATE
+    
+    Ensures a tensor is well-formed by checking:
+    1. Size is non-negative
+    2. Shape has at least one dimension (scalars are 1D with shape [1])
+    3. Data array length matches the declared size
+    
+    This prevents malformed tensors that could cause undefined behavior.
+  *)
+  predicate valid_tensor (t: tensor) =
+    t.size >= 0 /\                                    (* Size must be non-negative *)
+    Array.length t.shape >= 1 /\                      (* At least one dimension *)
+    Array.length t.data = t.size                      (* Data size matches declared size *)
+
+  (*
+    SHAPE COMPARISON PREDICATE
+    
+    Two tensors have the same shape if:
+    1. They have the same number of dimensions
+    2. Each corresponding dimension has the same size
+    
+    Example: [2, 3] and [2, 3] are same shape
+             [2, 3] and [3, 2] are different shapes
+             [2, 3] and [2, 3, 1] are different shapes (different rank)
+  *)
+  predicate same_shape (t1 t2: tensor) =
+    Array.length t1.shape = Array.length t2.shape /\           (* Same number of dimensions *)
+    forall i: int. 0 <= i < Array.length t1.shape ->          (* For each dimension index *)
+      t1.shape[i] = t2.shape[i]                               (* Corresponding sizes match *)
+
+  (*
+    BROADCASTING COMPATIBILITY PREDICATE
+    
+    Tensors are broadcastable if they can be used together in element-wise operations.
+    This follows NumPy/ONNX broadcasting rules:
+    1. Same shape tensors are always compatible
+    2. Scalar tensors (size 1) can broadcast to any shape
+    3. More complex broadcasting rules could be added here
+    
+    Example: [2, 3] + [2, 3] ✓ (same shape)
+             [2, 3] + [1] ✓ (scalar broadcasts)
+             [1] + [2, 3] ✓ (scalar broadcasts)
+  *)
+  predicate broadcastable (t1 t2: tensor) =
+    same_shape t1 t2 \/                        (* Either same shape *)
+    Array.length t1.data = 1 \/                (* Or first tensor is scalar *)
+    Array.length t2.data = 1                   (* Or second tensor is scalar *)
+
+  (*
+    INDEX VALIDITY PREDICATE
+    
+    Ensures an index is within valid bounds for array access.
+    This is used throughout operator specifications to ensure safe indexing.
+  *)
+  predicate valid_index (i: int) (length: int) =
+    0 <= i < length
+end
+
+theory RealOperators
+  use OperatorSpecs
+  use array.Array
+  use int.Int
+  use real.Real as Real
+
+  (*
+    HELPER FUNCTIONS FOR ELEMENT-WISE OPERATIONS
+    
+    These functions define the mathematical operations performed on individual
+    tensor elements. They correspond to the core mathematical operations
+    supported by ONNX operators.
+  *)
+  
+  (* Type conversion from integer to real *)
+  function int_to_real (x: int) : real
+  
+  (* Absolute value function *)
+  function abs (x: real) : real
+  
+  (* Basic arithmetic operations *)
+  function add_element (a b: real) : real = Real.( + ) a b
+  function mul_element (a b: real) : real = Real.( * ) a b
+  function sub_element (a b: real) : real = Real.( - ) a b
+  function div_element (a b: real) : real = Real.( / ) a b
+  
+  (* Activation functions *)
+  function relu_element (x: real) : real = if Real.(>=) x 0.0 then x else 0.0
+  
+  (* Advanced mathematical functions *)
+  function exp_element (x: real) : real      (* Exponential function *)
+  function sqrt_element (x: real) : real     (* Square root function *)
+  function pow_element (base exponent: real) : real  (* Power function *)
+
+  (*
+    BASIC ARITHMETIC OPERATORS
+    
+    These specifications define the behavior of fundamental arithmetic operations
+    on tensors, following ONNX operator semantics with broadcasting support.
+  *)
+
+  (*
+    ADDITION OPERATOR SPECIFICATION
+    
+    Performs element-wise addition of two tensors with broadcasting support.
+    The output tensor has the same shape as the larger input tensor.
+    
+    Requirements:
+    - Both inputs must be valid tensors
+    - Inputs must be broadcastable
+    - Output shape matches the broadcasted result
+    - Each output element is the sum of corresponding input elements
+  *)
+  predicate add_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    (Array.length input1.data = Array.length input2.data -> same_shape input2 output) /\
+    forall i: int. valid_index i (Array.length output.data) ->
+      output.data[i] = add_element input1.data[i] input2.data[i]
+
+  (*
+    MULTIPLICATION OPERATOR SPECIFICATION
+    
+    Performs element-wise multiplication of two tensors with broadcasting support.
+    Similar to addition but with multiplication operation.
+  *)
+  predicate mul_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    forall i: int. valid_index i (Array.length output.data) ->
+      output.data[i] = mul_element input1.data[i] input2.data[i]
+
+  (*
+    SUBTRACTION OPERATOR SPECIFICATION
+    
+    Performs element-wise subtraction of two tensors with broadcasting support.
+    Note: Subtraction is not commutative, so order matters.
+  *)
+  predicate sub_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    forall i: int. valid_index i (Array.length output.data) ->
+      output.data[i] = sub_element input1.data[i] input2.data[i]
+
+  (*
+    DIVISION OPERATOR SPECIFICATION
+    
+    Performs element-wise division of two tensors with broadcasting support.
+    Includes safety check to prevent division by zero.
+  *)
+  predicate div_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    (* Division by zero safety check *)
+    (forall i: int. valid_index i (Array.length input2.data) -> input2.data[i] <> 0.0) /\
+    forall i: int. valid_index i (Array.length output.data) ->
+      output.data[i] = div_element input1.data[i] input2.data[i]
+
+  (*
+    ACTIVATION FUNCTIONS
+    
+    These specifications define common activation functions used in neural networks.
+  *)
+
+  (*
+    RELU ACTIVATION FUNCTION SPECIFICATION
+    
+    Applies the Rectified Linear Unit function element-wise.
+    ReLU(x) = max(0, x) - sets negative values to zero, keeps positive values unchanged.
+    
+    This is one of the most common activation functions in deep learning.
+  *)
+  predicate relu_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    forall i: int. valid_index i (Array.length output.data) ->
+      output.data[i] = relu_element input.data[i]
+
+  (*
+    TENSOR MANIPULATION OPERATORS
+    
+    These specifications define operations that change tensor structure
+    without necessarily changing the underlying data values.
+  *)
+
+  (*
+    IDENTITY/COPY OPERATOR SPECIFICATION
+    
+    Creates an exact copy of the input tensor.
+    Used for explicit copying or as a no-op in computation graphs.
+  *)
+  predicate identity_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    forall i: int. valid_index i (Array.length input.data) -> 
+      input.data[i] = output.data[i]
+
+  (*
+    RESHAPE OPERATOR SPECIFICATION
+    
+    Changes the shape of a tensor without changing the underlying data.
+    The total number of elements must remain the same.
+    
+    Example: Reshape [2, 3] tensor to [6, 1] or [1, 6]
+  *)
+  predicate reshape_spec (input output: tensor) (new_shape: shape) =
+    valid_tensor input /\
+    valid_tensor output /\
+    Array.length input.data = Array.length output.data /\  (* Same total elements *)
+    Array.length output.shape = Array.length new_shape /\  (* Output has new shape *)
+    (forall i: int. valid_index i (Array.length new_shape) -> 
+      output.shape[i] = new_shape[i]) /\                   (* Shape dimensions match *)
+    forall i: int. valid_index i (Array.length input.data) -> 
+      input.data[i] = output.data[i]                       (* Data unchanged *)
+
+  (*
+    MATHEMATICAL FUNCTIONS
+    
+    These specifications define more advanced mathematical operations
+    commonly used in machine learning and scientific computing.
+  *)
+
+  (*
+    EXPONENTIAL OPERATOR SPECIFICATION
+    
+    Applies the exponential function (e^x) element-wise to the input tensor.
+    Used in softmax and other mathematical operations.
+  *)
+  predicate exp_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    forall i: int. valid_index i (Array.length output.data) ->
+      output.data[i] = exp_element input.data[i]
+
+  (*
+    SQUARE ROOT OPERATOR SPECIFICATION
+    
+    Applies the square root function element-wise to the input tensor.
+    Requires all input values to be non-negative for mathematical validity.
+  *)
+  predicate sqrt_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    (* Non-negative input constraint for mathematical validity *)
+    (forall i: int. valid_index i (Array.length input.data) -> Real.(>=) input.data[i] 0.0) /\
+    forall i: int. valid_index i (Array.length output.data) ->
+      output.data[i] = sqrt_element input.data[i]
+
+  (*
+    POWER OPERATOR SPECIFICATION
+    
+    Raises the first tensor to the power of the second tensor element-wise.
+    Supports broadcasting between the base and exponent tensors.
+  *)
+  predicate pow_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output /\
+    broadcastable input1 input2 /\
+    same_shape input1 output /\
+    forall i: int. valid_index i (Array.length output.data) ->
+      output.data[i] = pow_element input1.data[i] input2.data[i]
+
+  (*
+    MATHEMATICAL PROPERTIES OF OPERATORS
+    
+    These predicates define important mathematical properties that operators
+    should satisfy. They can be used for formal verification and testing.
+  *)
+
+  (*
+    ADDITION COMMUTATIVITY PROPERTY
+    
+    Addition should be commutative: a + b = b + a
+    This property ensures that the order of operands doesn't matter.
+  *)
+  predicate add_commutativity (input1 input2 output1 output2: tensor) =
+    add_spec input1 input2 output1 /\
+    add_spec input2 input1 output2 /\
+    same_shape output1 output2 /\
+    forall i: int. valid_index i (Array.length output1.data) ->
+      output1.data[i] = output2.data[i]
+
+  (*
+    ADDITION ASSOCIATIVITY PROPERTY
+    
+    Addition should be associative: (a + b) + c = a + (b + c)
+    This property ensures that grouping doesn't affect the result.
+  *)
+  predicate add_associativity (a b c ab_c a_bc: tensor) =
+    exists ab bc: tensor.
+    add_spec a b ab /\
+    add_spec ab c ab_c /\
+    add_spec b c bc /\
+    add_spec a bc a_bc /\
+    same_shape ab_c a_bc /\
+    forall i: int. valid_index i (Array.length ab_c.data) ->
+      ab_c.data[i] = a_bc.data[i]
+
+  (*
+    MULTIPLICATION COMMUTATIVITY PROPERTY
+    
+    Multiplication should be commutative: a * b = b * a
+  *)
+  predicate mul_commutativity (input1 input2 output1 output2: tensor) =
+    mul_spec input1 input2 output1 /\
+    mul_spec input2 input1 output2 /\
+    same_shape output1 output2 /\
+    forall i: int. valid_index i (Array.length output1.data) ->
+      output1.data[i] = output2.data[i]
+
+  (*
+    RELU IDEMPOTENT PROPERTY
+    
+    ReLU applied twice should give the same result: ReLU(ReLU(x)) = ReLU(x)
+    This is because ReLU only affects negative values, making them zero.
+  *)
+  predicate relu_idempotent (input output1 output2: tensor) =
+    relu_spec input output1 /\
+    relu_spec output1 output2 /\
+    same_shape output1 output2 /\
+    forall i: int. valid_index i (Array.length output1.data) ->
+      output1.data[i] = output2.data[i]
+
+  (*
+    RELU MONOTONICITY PROPERTY
+    
+    ReLU preserves ordering: if x1 <= x2, then ReLU(x1) <= ReLU(x2)
+    This is important for the mathematical properties of the activation function.
+  *)
+  predicate relu_monotonic (input1 input2 output1 output2: tensor) =
+    valid_tensor input1 /\ valid_tensor input2 /\
+    same_shape input1 input2 /\
+    relu_spec input1 output1 /\
+    relu_spec input2 output2 /\
+    (forall i: int. valid_index i (Array.length input1.data) ->
+      Real.(<=) input1.data[i] input2.data[i]) ->
+    forall i: int. valid_index i (Array.length output1.data) ->
+      Real.(<=) output1.data[i] output2.data[i]
+
+  (*
+    ADVANCED OPERATORS
+    
+    These specifications define more complex operations commonly used
+    in machine learning models and neural networks.
+  *)
+
+  (*
+    MATRIX MULTIPLICATION SPECIFICATION
+    
+    Performs matrix multiplication between two 2D tensors.
+    This is a placeholder specification that would need more detailed
+    implementation for the actual matrix multiplication logic.
+  *)
+  predicate matmul_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\
+    valid_tensor input2 /\
+    valid_tensor output
+
+  (*
+    SIGMOID ACTIVATION FUNCTION SPECIFICATION
+    
+    Applies the sigmoid function element-wise: σ(x) = 1 / (1 + e^(-x))
+    This is a placeholder specification that would need the actual function definition.
+  *)
+  predicate sigmoid_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output
+
+  (*
+    SIGMOID BOUNDED PROPERTY
+    
+    Sigmoid output is always between 0 and 1: 0 < σ(x) < 1 for all x
+    This is a fundamental property of the sigmoid activation function.
+  *)
+  predicate sigmoid_bounded (input output: tensor) =
+    sigmoid_spec input output /\
+    forall i: int. valid_index i (Array.length output.data) ->
+      Real.(<) 0.0 output.data[i] /\ Real.(<) output.data[i] 1.0
+
+  (*
+    SIGMOID MONOTONICITY PROPERTY
+    
+    Sigmoid preserves ordering: if x1 <= x2, then σ(x1) <= σ(x2)
+  *)
+  predicate sigmoid_monotonic (input1 input2 output1 output2: tensor) =
+    valid_tensor input1 /\ valid_tensor input2 /\
+    same_shape input1 input2 /\
+    sigmoid_spec input1 output1 /\
+    sigmoid_spec input2 output2 /\
+    (forall i: int. valid_index i (Array.length input1.data) ->
+      Real.(<=) input1.data[i] input2.data[i]) ->
+    forall i: int. valid_index i (Array.length output1.data) ->
+      Real.(<=) output1.data[i] output2.data[i]
+
+  (*
+    TENSOR STRUCTURE MANIPULATION OPERATORS
+    
+    These operations change the structure or layout of tensors
+    without necessarily changing the mathematical meaning.
+  *)
+
+  (*
+    TRANSPOSE OPERATOR SPECIFICATION
+    
+    Transposes a 2D tensor by swapping rows and columns.
+    For a matrix A[i,j], transpose gives A^T[j,i].
+  *)
+  predicate transpose_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    Array.length input.shape = 2 /\                    (* Input must be 2D *)
+    Array.length output.shape = 2 /\                   (* Output must be 2D *)
+    input.shape[0] = output.shape[1] /\                (* Rows become columns *)
+    input.shape[1] = output.shape[0] /\                (* Columns become rows *)
+    Array.length input.data = Array.length output.data (* Same total elements *)
+
+  (*
+    SOFTMAX OPERATOR SPECIFICATION
+    
+    Applies the softmax function, typically used for probability distributions.
+    Ensures all output values are positive and sum to 1.0.
+  *)
+  predicate softmax_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output /\
+    (* Sum equals 1.0 and all values are positive *)
+    (exists sum: real. sum = 1.0 /\
+      forall i: int. valid_index i (Array.length output.data) ->
+        Real.(>=) output.data[i] 0.0) /\
+    (* All values are between 0 and 1 *)
+    forall i: int. valid_index i (Array.length output.data) ->
+      Real.(<) 0.0 output.data[i] /\ Real.(<) output.data[i] 1.0
+
+  (*
+    TYPE CONVERSION AND SHAPE MANIPULATION
+    
+    These operators handle type conversions and basic shape changes.
+  *)
+
+  (*
+    CAST OPERATOR SPECIFICATION
+    
+    Converts tensor elements from one data type to another.
+    This is a simplified specification that maintains shape and basic validity.
+  *)
+  predicate cast_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    same_shape input output
+
+  (*
+    SQUEEZE OPERATOR SPECIFICATION
+    
+    Removes dimensions of size 1 from the tensor shape.
+    The total number of elements remains the same.
+  *)
+  predicate squeeze_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    Array.length input.data = Array.length output.data
+
+  (*
+    UNSQUEEZE OPERATOR SPECIFICATION
+    
+    Adds dimensions of size 1 to the tensor shape.
+    The total number of elements remains the same.
+  *)
+  predicate unsqueeze_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output /\
+    Array.length input.data = Array.length output.data
+
+  (*
+    REDUCTION OPERATORS
+    
+    These operators reduce tensors along specified dimensions.
+  *)
+
+  (*
+    REDUCE MEAN OPERATOR SPECIFICATION
+    
+    Computes the mean of tensor elements along specified axes.
+    This is a simplified specification that would need axis parameters.
+  *)
+  predicate reduce_mean_spec (input output: tensor) =
+    valid_tensor input /\
+    valid_tensor output
+
+  (*
+    NEURAL NETWORK SPECIFIC OPERATORS
+    
+    These operators are commonly used in neural network architectures.
+  *)
+
+  (*
+    BATCH NORMALIZATION SPECIFICATION
+    
+    Normalizes inputs across the batch dimension.
+    This is a simplified specification for the complex batch norm operation.
+  *)
+  predicate batch_norm_spec (input output: tensor) =
+    valid_tensor input /\ valid_tensor output /\ same_shape input output
+
+  (*
+    CONVOLUTION OPERATOR SPECIFICATION
+    
+    Performs convolution operation between input and weight tensors.
+    This is a simplified specification that preserves the batch dimension.
+  *)
+  predicate conv_spec (input weight output: tensor) =
+    OperatorSpecs.valid_tensor input /\ OperatorSpecs.valid_tensor weight /\ OperatorSpecs.valid_tensor output /\
+    (* Convolution preserves batch dimension *)
+    ((Int.(>=) (Array.length input.shape) 1) /\ (Int.(>=) (Array.length output.shape) 1)) ->
+      (input.shape[0] = output.shape[0])
+
+  (*
+    TENSOR COMBINATION OPERATORS
+    
+    These operators combine multiple tensors in various ways.
+  *)
+
+  (*
+    CONCATENATION OPERATOR SPECIFICATION
+    
+    Joins two tensors along a specified axis.
+    The output contains both input tensors' data.
+  *)
+  predicate concat_spec (input1 input2 output: tensor) =
+    valid_tensor input1 /\ valid_tensor input2 /\ valid_tensor output /\
+    (* Same number of dimensions *)
+    Array.length input1.shape = Array.length input2.shape /\
+    Array.length input1.shape = Array.length output.shape /\
+    (* Data size constraint: output contains both inputs *)
+    Int.(>=) (Array.length output.data) (Array.length input1.data) /\
+    Int.(>=) (Array.length output.data) (Array.length input2.data)
+
+  (*
+    CONSTANT GENERATION OPERATORS
+    
+    These operators create tensors with specific constant values.
+  *)
+
+  (*
+    CONSTANT OF SHAPE OPERATOR SPECIFICATION
+    
+    Creates a tensor of the specified shape filled with a constant value.
+    All elements in the output tensor have the same value.
+  *)
+  predicate constant_of_shape_spec (output: tensor) (value: real) =
+    valid_tensor output /\
+    (* All output values equal the constant *)
+    forall i: int. valid_index i (Array.length output.data) ->
+      output.data[i] = value
+
+  (*
+    INDEXING AND SELECTION OPERATORS
+    
+    These operators select or rearrange tensor elements based on indices.
+  *)
+
+  (*
+    GATHER OPERATOR SPECIFICATION
+    
+    Gathers elements from the input tensor using the provided indices.
+    This is a simplified specification that would need more detailed indexing logic.
+  *)
+  predicate gather_spec (input indices output: tensor) (axis: int) =
+    valid_tensor input /\ valid_tensor indices /\ valid_tensor output
+
+  (*
+    POOLING OPERATORS
+    
+    These operators perform pooling operations commonly used in CNNs.
+  *)
+
+  (*
+    MAX POOLING OPERATOR SPECIFICATION
+    
+    Performs max pooling operation, selecting maximum values from regions.
+    Maintains the same number of dimensions as the input.
+  *)
+  predicate maxpool_spec (input output: tensor) =
+    valid_tensor input /\ valid_tensor output /\
+    Array.length input.shape = Array.length output.shape
+  (*
+    COMPUTER VISION AND IMAGE PROCESSING OPERATORS
+    
+    These operators are specifically designed for computer vision tasks
+    and image processing operations.
+  *)
+
+  (*
+    NON-MAXIMUM SUPPRESSION SPECIFICATION
+    
+    Filters overlapping bounding boxes in object detection.
+    
+    Requirements:
+    - boxes: [N, 4] tensor with N bounding boxes, each with 4 coordinates
+    - scores: [N] tensor with confidence scores for each box
+    - Valid IoU and score thresholds
+    - Output indices refer to valid boxes from the input
+  *)
+  predicate nms_spec (boxes scores output_indices: tensor) (iou_threshold score_threshold: real) =
+    valid_tensor boxes /\ valid_tensor scores /\ valid_tensor output_indices /\
+    (* Boxes must be 2D: [N, 4] for N bounding boxes *)
+    Array.length boxes.shape = 2 /\ boxes.shape[1] = 4 /\
+    (* Scores must be 1D: [N] *)
+    Array.length scores.shape = 1 /\
+    (* Number of boxes must match number of scores *)
+    boxes.shape[0] = scores.shape[0] /\
+    (* Thresholds must be valid *)
+    Real.(<=) 0.0 iou_threshold /\ Real.(<=) iou_threshold 1.0 /\ Real.(>=) score_threshold 0.0 /\
+    (* Output contains valid indices *)
+    Int.(<=) (Array.length output_indices.data) (Array.length scores.data)
+
+  (*
+    TENSOR PADDING OPERATORS
+    
+    These operators add padding to tensors, commonly used in CNNs.
+  *)
+
+  (*
+    PADDING OPERATOR SPECIFICATION
+    
+    Adds padding to tensor dimensions according to the pad_values array.
+    
+    Requirements:
+    - pad_values length = 2 * number of dimensions
+    - Each dimension gets [left_pad, right_pad] values
+    - All padding values must be non-negative
+  *)
+  predicate pad_spec (input output: tensor) (pad_values: array int) =
+    valid_tensor input /\ valid_tensor output /\
+    (* Padding values array length must be 2 * number of dimensions *)
+    Array.length pad_values = 2 * Array.length input.shape /\
+    (* Same number of dimensions *)
+    Array.length input.shape = Array.length output.shape /\
+    (* Each dimension correctly padded *)
+    forall i: int. 0 <= i < Array.length input.shape ->
+      output.shape[i] = input.shape[i] + pad_values[2*i] + pad_values[2*i + 1] /\
+      pad_values[2*i] >= 0 /\ pad_values[2*i + 1] >= 0
+
+  (*
+    IMAGE RESIZING AND SCALING OPERATORS
+    
+    These operators handle image resizing and scaling operations.
+  *)
+
+  (*
+    RESIZE OPERATOR SPECIFICATION
+    
+    Resizes a tensor (typically an image) using scale factors.
+    Each dimension is scaled by the corresponding factor.
+  *)
+  predicate resize_spec (input output: tensor) (scale_factors: array real) =
+    valid_tensor input /\ valid_tensor output /\
+    (* Same number of dimensions *)
+    Array.length input.shape = Array.length output.shape /\
+    Array.length scale_factors = Array.length input.shape /\
+    (* Each scale factor must be positive *)
+    forall i: int. Int.(<=) 0 i /\ Int.(<) i (Array.length scale_factors) ->
+      Real.(>) scale_factors[i] 0.0
+
+  (*
+    UPSAMPLE OPERATOR SPECIFICATION
+    
+    Upsamples a tensor by a given scale factor.
+    Commonly used in computer vision for increasing spatial resolution.
+  *)
+  predicate upsample_spec (input output: tensor) (scale: real) =
+    valid_tensor input /\ valid_tensor output /\
+    (* Same number of dimensions *)
+    Array.length input.shape = Array.length output.shape /\
+    (* Scale factor must be positive *)
+    Real.(>) scale 0.0 /\
+    (* Batch and channel dimensions preserved if present *)
+    (Int.(>=) (Array.length input.shape) 1 -> output.shape[0] = input.shape[0]) /\
+    (Int.(>=) (Array.length input.shape) 2 -> output.shape[1] = input.shape[1])
+
+  (*
+    TENSOR INTROSPECTION OPERATORS
+    
+    These operators provide information about tensor properties.
+  *)
+
+  (*
+    SHAPE OPERATOR SPECIFICATION
+    
+    Returns the shape of the input tensor as a 1D tensor.
+    Each element in the output corresponds to a dimension size.
+  *)
+  predicate shape_spec (input output: tensor) =
+    valid_tensor input /\ valid_tensor output /\
+    (* Output is 1D tensor containing input's shape *)
+    Array.length output.shape = 1 /\
+    Array.length output.data = Array.length input.shape /\
+    (* Each element equals corresponding dimension *)
+    forall i: int. valid_index i (Array.length output.data) ->
+      output.data[i] = int_to_real input.shape[i]
+
+  (*
+    TENSOR SLICING AND SPLITTING OPERATORS
+    
+    These operators extract or split parts of tensors.
+  *)
+
+  (*
+    SLICE OPERATOR SPECIFICATION
+    
+    Extracts a slice from the input tensor using start and end indices.
+    
+    Requirements:
+    - starts and ends arrays have same length as input dimensions
+    - All slice ranges are valid (0 <= start <= end <= dimension_size)
+    - Output dimensions match slice sizes
+  *)
+  predicate slice_spec (input output: tensor) (starts ends: array int) =
+    valid_tensor input /\ valid_tensor output /\
+    (* Same number of dimensions *)
+    Array.length input.shape = Array.length output.shape /\
+    Array.length starts = Array.length input.shape /\
+    Array.length ends = Array.length input.shape /\
+    (* Valid slice ranges *)
+    (forall i: int. 0 <= i < Array.length starts ->
+      0 <= starts[i] <= ends[i] <= input.shape[i]) /\
+    (* Output dimensions match slice sizes *)
+    forall i: int. 0 <= i < Array.length output.shape ->
+      output.shape[i] = ends[i] - starts[i]
+
+  (*
+    SPLIT OPERATOR SPECIFICATION
+    
+    Splits a tensor into two parts along a specified axis.
+    
+    Requirements:
+    - Valid axis and split point within tensor dimensions
+    - Output tensors preserve all dimensions except the split axis
+    - Split dimensions sum to the original dimension size
+  *)
+  predicate split_spec (input output1 output2: tensor) (axis split_point: int) =
+    valid_tensor input /\ valid_tensor output1 /\ valid_tensor output2 /\
+    (* Valid axis and split point *)
+    0 <= axis < Array.length input.shape /\
+    0 < split_point < input.shape[axis] /\
+    (* Same number of dimensions *)
+    Array.length input.shape = Array.length output1.shape /\
+    Array.length input.shape = Array.length output2.shape /\
+    (* All dimensions except split axis preserved *)
+    (forall i: int. 0 <= i < Array.length input.shape /\ i <> axis ->
+      input.shape[i] = output1.shape[i] /\ input.shape[i] = output2.shape[i]) /\
+    (* Split dimensions sum to original *)
+    output1.shape[axis] = split_point /\
+    output2.shape[axis] = input.shape[axis] - split_point
+
+end

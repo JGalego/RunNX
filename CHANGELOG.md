@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+## [0.2.1] - 2025-09-01
+
+### 🚀 Enhancements
+- **Complete YOLOv8 Support**: Full end-to-end object detection pipeline
+  - Enhanced `yolov8_detect_and_draw` example with complete visualization
+  - Performance optimizations for real-world inference
+  - Improved preprocessing and post-processing pipelines
+  - Enhanced error handling and logging
+- **Comprehensive Documentation**: Complete documentation overhaul
+  - New structured documentation in `docs/` folder
+  - Enhanced setup guides and tutorials
+  - Improved API documentation and examples
+- **Updated Dependencies**: Upgraded to latest compatible versions
+- **CI/CD Improvements**: 
+  - Updated GitHub Actions (checkout v4→v5, upload-pages-artifact v3→v4)
+  - Fixed pipeline issues for CI and releases
+  - Added proper permissions for release workflow
+  - Enhanced formal verification pipeline
+- **Rust Toolchain**: Updated to Rust 1.85 for latest language features
+- **Test Coverage**: Improved test coverage with edge case tests for ONNX protobuf and tensor operations
+- **Performance**: Updated benchmarks and operator implementations
+
+### 🐛 Bug Fixes
+- Fixed YOLOv8 detection performance issues
+- Improved tensor slicing implementation with complete formal verification
+- Enhanced error handling in image processing pipeline
+- Fixed formal verification issues
+- Resolved missing coverage spots in codebase
+
+### 🔧 Technical Improvements
+- Enhanced operator.rs coverage
+- Updated onnx.rs from onnx proto
+- Added comprehensive edge case tests
+- Improved documentation structure
+
 ## [0.2.0] - 2025-07-25
 
 ### ✨ Features
@@ -27,7 +64,7 @@ All notable changes to this project will be documented in this file.
 
 - **🛠️ YOLO Model Support**: Essential operators for YOLO object detection
   - `Concat`: Tensor concatenation for feature fusion
-  - `Slice`: Tensor slicing operations (simplified)
+  - `Slice`: Tensor slicing operations
   - `Upsample`: Feature map upsampling for FPN (simplified)
   - `MaxPool`: Max pooling operations (simplified)
   - `Softmax`: Classification probability computation

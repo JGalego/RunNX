@@ -1,8 +1,8 @@
 [package]
 name = "runnx"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.85"
 description = "A minimal, verifiable ONNX runtime implementation in Rust"
 authors = ["João Galego <jgalego1990@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -26,19 +26,23 @@ ndarray = { version = "0.16", features = ["serde"] }
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-prost = "0.13"
+prost = "0.14.1"
 log = "0.4"
 env_logger = "0.11"
+
+# Image processing for examples
+image = "0.25"
+imageproc = "0.25"
 
 # Optional features
 tokio = { version = "1.0", features = ["full"], optional = true }
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = "0.14.1"
 
 [dev-dependencies]
 env_logger = "0.11"
-criterion = { version = "0.6", features = ["html_reports"] }
+criterion = { version = "0.7.0", features = ["html_reports"] }
 tempfile = "3.8"
 tokio = { version = "1.0", features = ["macros", "rt"] }
 proptest = "1.4"
@@ -52,6 +56,14 @@ formal-verification = []  # Enable formal verification checks and contracts
 
 [[bench]]
 name = "inference_benchmark"
+harness = false
+
+[[bench]]
+name = "operator_benchmark"
+harness = false
+
+[[bench]]
+name = "cv_benchmark"
 harness = false
 
 [lib]
