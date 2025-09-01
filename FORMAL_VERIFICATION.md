@@ -6,7 +6,7 @@ We have successfully added **formal verification for ONNX operators** to RunNX u
 
 ## � Key Components Added
 
-### 1. **Why3 Specifications** (`formal/operator_specs.mlw`)
+### 1. **Why3 Specifications** (`formal/simple_specs.mlw`)
 - **Complete mathematical specifications** for all major ONNX operators:
   - Addition, Multiplication, Matrix Multiplication
   - ReLU, Sigmoid activation functions

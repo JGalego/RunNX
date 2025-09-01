@@ -454,7 +454,7 @@ just formal-verify
 
 ### Adding New Formal Specifications
 
-1. Add specifications to `formal/operator_specs.mlw`
+1. Add specifications to `formal/simple_specs.mlw`
 2. Implement runtime contracts in `src/operators.rs`
 3. Add property-based tests
 4. Run verification pipeline
@@ -586,7 +586,7 @@ error: failed to run custom build command for `prost-build`
 ### Adding New Operators
 
 1. **Define operator** in `src/operators.rs`
-2. **Add formal specification** in `formal/operator_specs.mlw`
+2. **Add formal specification** in `formal/simple_specs.mlw`
 3. **Implement tests** including property-based tests
 4. **Add benchmarks** if performance-critical
 5. **Update documentation** with examples

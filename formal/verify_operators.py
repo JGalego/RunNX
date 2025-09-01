@@ -17,13 +17,15 @@ class OperatorVerifier:
     
     def __init__(self, formal_dir="formal"):
         self.formal_dir = Path(formal_dir)
-        self.spec_file = self.formal_dir / "simple_specs.mlw"
+        self.tensor_spec_file = self.formal_dir / "tensors.mlw"
+        self.operator_spec_file = self.formal_dir / "operators.mlw"
         self.results = {}
         
         # Ensure we're in the right directory
         if not self.formal_dir.exists():
             self.formal_dir = Path(".")
-            self.spec_file = self.formal_dir / "simple_specs.mlw"
+            self.tensor_spec_file = self.formal_dir / "tensors.mlw"
+            self.operator_spec_file = self.formal_dir / "operators.mlw"
         
     def check_why3_installation(self):
         """Check if Why3 is properly installed"""
@@ -91,17 +93,35 @@ class OperatorVerifier:
     
     def verify_operator_specs(self, prover="Alt-Ergo,2.6.2", timeout=10):
         """Verify the operator specifications using Why3"""
-        if not self.spec_file.exists():
-            print(f"❌ Specification file not found: {self.spec_file}")
+        if not self.tensor_spec_file.exists():
+            print(f"❌ Tensor specification file not found: {self.tensor_spec_file}")
             return False
+            
+        if not self.operator_spec_file.exists():
+            print(f"❌ Operator specification file not found: {self.operator_spec_file}")
+            return False
+
+        print(f"🔍 Verifying tensor specifications with {prover}...")
+        
+        # First verify tensor specifications
+        tensor_success = self._verify_file(self.tensor_spec_file, prover, timeout)
         
         print(f"🔍 Verifying operator specifications with {prover}...")
+        
+        # Then verify operator specifications  
+        operator_success = self._verify_file(self.operator_spec_file, prover, timeout)
+        
+        return tensor_success and operator_success
+    
+    def _verify_file(self, spec_file, prover="Alt-Ergo,2.6.2", timeout=10):
+        """Verify a single MLW file using Why3"""
+        print(f"📝 Checking {spec_file.name}...")
         
         try:
             # Run Why3 proof verification
             cmd = [
                 "why3", "prove", 
-                str(self.spec_file),
+                str(spec_file),
                 "-P", prover,
                 "-t", str(timeout)
             ]
@@ -134,42 +154,126 @@ class OperatorVerifier:
             print(f"❌ Why3 verification failed: {e}")
             return False
     
+    def get_available_operators(self):
+        """Dynamically detect available operators from MLW files"""
+        operators = {}
+        
+        # Scan operators.mlw for predicate definitions
+        try:
+            with open(self.operator_spec_file, 'r') as f:
+                content = f.read()
+                
+            # Find all predicates that end with _spec
+            import re
+            spec_patterns = re.findall(r'predicate\s+(\w+_spec)\s*\(', content)
+            
+            for spec in spec_patterns:
+                # Extract operator name (remove _spec suffix)
+                if spec.endswith('_spec'):
+                    op_name = spec[:-5]  # Remove '_spec'
+                    if op_name not in operators:
+                        operators[op_name] = []
+                    operators[op_name].append(spec)
+                    
+            # Also look for additional properties (monotonic, idempotent, etc.)
+            property_patterns = re.findall(r'predicate\s+(\w+)_(monotonic|idempotent|bounded|commutativity|associativity|identity|inverse|positivity)\s*\(', content)
+            
+            for op_name, prop in property_patterns:
+                if op_name not in operators:
+                    operators[op_name] = []
+                operators[op_name].append(f"{op_name}_{prop}")
+                
+        except FileNotFoundError:
+            print(f"⚠️ Could not find {self.operator_spec_file}")
+            
+        return operators
+
     def verify_specific_operator(self, operator_name, prover="Alt-Ergo,2.6.2"):
         """Verify specifications for a specific operator"""
         print(f"🎯 Verifying {operator_name} operator...")
         
-        # Map operator names to their specifications
-        operator_specs = {
-            "add": ["add_spec", "add_commutativity", "add_associativity"],
-            "mul": ["mul_spec", "mul_commutativity", "mul_associativity"],
-            "matmul": ["matmul_spec"],
-            "relu": ["relu_spec", "relu_non_negative", "relu_idempotent", "relu_monotonic"],
-            "sigmoid": ["sigmoid_spec", "sigmoid_bounded", "sigmoid_monotonic"],
-            "transpose": ["transpose_2d_spec", "transpose_involution"],
-            "reshape": ["reshape_spec", "reshape_preserves_data"],
-            "div": ["div_spec", "div_inverse_property"],
-            "sub": ["sub_spec", "sub_inverse_property"],
-            "exp": ["exp_spec", "exp_positivity"],
-            "sqrt": ["sqrt_spec", "sqrt_monotonic"],
-            "pow": ["pow_spec"],
-            "identity": ["identity_spec", "identity_preservation"],
-            "cast": ["cast_spec"],
-            "squeeze": ["squeeze_spec"],
-            "unsqueeze": ["unsqueeze_spec"],
-            "reduce_mean": ["reduce_mean_spec"],
-            "batch_norm": ["batch_norm_spec"]
-        }
+        # Get available operators dynamically
+        available_operators = self.get_available_operators()
         
-        if operator_name.lower() not in operator_specs:
+        if operator_name.lower() not in available_operators:
             print(f"❌ Unknown operator: {operator_name}")
+            print(f"   Available operators: {', '.join(available_operators.keys())}")
             return False
         
-        specs = operator_specs[operator_name.lower()]
+        specs = available_operators[operator_name.lower()]
         print(f"   Verifying: {', '.join(specs)}")
         
-        # For now, use the general verification
-        # In a more sophisticated setup, we could verify specific goals
-        return self.verify_operator_specs(prover)
+        # Verify specific goals for this operator
+        return self._verify_specific_goals(specs, prover)
+    
+    def _verify_specific_goals(self, goal_names, prover="Alt-Ergo,2.6.2", timeout=10):
+        """Verify specific goals/predicates in the MLW files"""
+        all_success = True
+        
+        for goal in goal_names:
+            print(f"    🔍 Verifying predicate: {goal}")
+            
+            # Check if the predicate exists in operators.mlw
+            success = self._check_predicate_exists(goal)
+            
+            if success:
+                # Verify the file compiles properly
+                compile_success = self._verify_file_compiles(self.operator_spec_file, prover, timeout)
+                if compile_success:
+                    print(f"    ✅ Predicate {goal} exists and compiles successfully!")
+                else:
+                    print(f"    ❌ Predicate {goal} exists but file compilation failed!")
+                    all_success = False
+            else:
+                print(f"    ❌ Predicate {goal} not found!")
+                all_success = False
+                
+        return all_success
+    
+    def _check_predicate_exists(self, predicate_name):
+        """Check if a predicate exists in the MLW files"""
+        try:
+            # Check in operators.mlw
+            with open(self.operator_spec_file, 'r') as f:
+                content = f.read()
+                if f"predicate {predicate_name}" in content:
+                    return True
+            
+            # Check in tensors.mlw
+            with open(self.tensor_spec_file, 'r') as f:
+                content = f.read()
+                if f"predicate {predicate_name}" in content:
+                    return True
+            
+            return False
+        except FileNotFoundError:
+            return False
+    
+    def _verify_file_compiles(self, spec_file, prover="Alt-Ergo,2.6.2", timeout=10):
+        """Verify that an MLW file compiles and type-checks properly"""
+        try:
+            # Run Why3 proof verification to check compilation
+            cmd = [
+                "why3", "prove", 
+                str(spec_file),
+                "-P", prover,
+                "-t", str(timeout)
+            ]
+            
+            result = subprocess.run(
+                cmd, 
+                capture_output=True, 
+                text=True, 
+                timeout=30
+            )
+            
+            # Success if no compilation errors
+            return result.returncode == 0
+                
+        except subprocess.TimeoutExpired:
+            return False
+        except subprocess.CalledProcessError:
+            return False
     
     def generate_property_tests(self):
         """Generate property-based tests from specifications"""
@@ -303,10 +407,9 @@ mod operator_property_tests {{
             print("❌ No suitable prover found")
             return False
         
-        # Verify all operators
-        operators = ["add", "mul", "matmul", "relu", "sigmoid", "transpose", "reshape", 
-                    "div", "sub", "exp", "sqrt", "pow", "identity", "cast", "squeeze", 
-                    "unsqueeze", "reduce_mean", "batch_norm"]
+        # Verify all operators that actually exist
+        available_operators = self.get_available_operators()
+        operators = list(available_operators.keys())
         all_passed = True
         
         for operator in operators:

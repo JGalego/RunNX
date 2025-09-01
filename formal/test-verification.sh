@@ -8,22 +8,22 @@ echo "🧪 Testing Formal Verification for ONNX Operators"
 echo "================================================="
 
 echo ""
-echo "📋 Step 1: Check Rust compilation with formal verification feature"
-echo "-------------------------------------------------------------------"
+echo "📋 Step 1: Check formal verification feature compilation"
+echo "-------------------------------------------------------"
 cargo check --features formal-verification
-echo "✅ Compilation check passed"
+echo "✅ Formal verification compilation check passed"
 
 echo ""
-echo "📋 Step 2: Run operator tests"
-echo "------------------------------"
-cargo test operator_formal_tests
-echo "✅ Operator tests passed"
-
-echo ""
-echo "📋 Step 3: Run property-based tests"
+echo "📋 Step 2: Run formal operator tests"
 echo "------------------------------------"
-cargo test property_tests
-echo "✅ Property-based tests passed"
+cargo test formal --release
+echo "✅ Formal operator tests passed"
+
+echo ""
+echo "📋 Step 3: Run property-based formal tests"
+echo "------------------------------------------"
+cargo test property_tests --release
+echo "✅ Property-based formal tests passed"
 
 echo ""
 echo "📋 Step 4: Check Why3 availability"
@@ -65,19 +65,19 @@ RUST_LOG=debug cargo run --features formal-verification --example tensor_ops
 echo "✅ Example execution completed"
 
 echo ""
-echo "🎉 All formal verification tests completed!"
+echo "🎉 Formal verification pipeline completed successfully!"
 echo ""
 echo "Summary:"
-echo "  ✅ Rust compilation check"
-echo "  ✅ Operator unit tests"
-echo "  ✅ Property-based tests"
+echo "  ✅ Formal verification compilation check"
+echo "  ✅ Formal operator tests"
+echo "  ✅ Property-based formal tests"
 if command -v why3 &> /dev/null; then
-    echo "  ✅ Why3 availability check"
+    echo "  ✅ Why3 availability and prover detection"
     echo "  ⚖️ Formal specification verification"
 else
-    echo "  ⚠️ Why3 not available (optional)"
+    echo "  ⚠️ Why3 not available (install with: make install-why3)"
 fi
-echo "  ✅ Build with formal verification"
-echo "  ✅ Example execution"
+echo "  ✅ Formal verification enabled build"
+echo "  ✅ Formal verification example execution"
 echo ""
-echo "🎯 The operators now have formal specifications and are ready for verification!"
+echo "🎯 All formal verification checks passed!"
