@@ -5,7 +5,7 @@ This guide provides detailed installation instructions for RunNX across differen
 ## System Requirements
 
 ### Minimum Requirements
-- **Rust**: 1.81.0 or later (latest stable recommended)
+- **Rust**: 1.85.0 or later (latest stable recommended)
 - **Protocol Buffers**: `protoc` compiler version 3.12 or later
 - **Memory**: 4GB RAM minimum (8GB+ recommended for YOLOv8 models)
 - **Storage**: 200MB for basic installation, additional space for YOLO models (~6MB for YOLOv8n)

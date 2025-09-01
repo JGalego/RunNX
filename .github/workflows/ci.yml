@@ -219,10 +219,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y protobuf-compiler
 
-    - name: Install Rust 1.81 # Updated to support clap dependency
+    - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: 1.81.0
+        toolchain: 1.85
 
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -256,7 +256,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: '1.81'
+        toolchain: '1.85'
         components: llvm-tools-preview
 
     - name: Cache cargo registry

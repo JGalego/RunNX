@@ -15,7 +15,7 @@ This guide covers setting up a development environment for contributing to RunNX
 
 #### 1. Rust Toolchain
 
-Install the latest stable Rust (1.81+):
+Install the latest stable Rust (1.85+):
 
 ```bash
 # Install Rust using rustup

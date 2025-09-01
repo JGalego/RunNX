@@ -51,7 +51,7 @@ formal/
 
 ### Prerequisites
 
-- Rust 1.81+
+- Rust 1.85+
 - Python 3.8+
 - Why3 (optional, for formal proofs)
 
