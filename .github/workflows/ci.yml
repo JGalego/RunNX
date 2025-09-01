@@ -46,7 +46,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: ${{ matrix.rust == 'stable' && '1.81' || matrix.rust }}
+        toolchain: ${{ matrix.rust == 'stable' && '1.82.0' || matrix.rust }}
         components: rustfmt, clippy
 
     - name: Cache cargo registry
@@ -110,6 +110,8 @@ jobs:
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.82.0
 
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -146,6 +148,8 @@ jobs:
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.82.0
 
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -179,6 +183,8 @@ jobs:
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.82.0
 
     - name: Cache cargo registry
       uses: actions/cache@v4
