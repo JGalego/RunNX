@@ -126,7 +126,7 @@ jobs:
       run: cargo bench
 
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: benchmark-results
         path: target/criterion/
@@ -199,7 +199,7 @@ jobs:
       run: cargo doc --all-features --no-deps --document-private-items
 
     - name: Upload documentation
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: documentation
         path: target/doc/
@@ -321,7 +321,7 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
 
     - name: Upload coverage reports (artifacts)
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: coverage-reports-${{ github.run_number }}
         path: |
