@@ -660,7 +660,7 @@ impl Tensor {
                 "Input contains non-finite values (NaN or Inf)".to_string(),
             ));
         }
-        
+
         let data = self.data.mapv(|x| x.max(0.0));
         Ok(Tensor { data })
     }
@@ -689,7 +689,7 @@ impl Tensor {
                 "Input contains non-finite values (NaN or Inf)".to_string(),
             ));
         }
-        
+
         // Use numerically stable sigmoid: clamp extreme values
         let data = self.data.mapv(|x| {
             // Clamp to [-500, 500] to prevent exp overflow
