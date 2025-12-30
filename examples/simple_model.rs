@@ -152,13 +152,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ReLU
     let e = Tensor::from_array(Array1::from_vec(vec![-2., -1., 0., 1., 2.]));
-    let f = e.relu();
+    let f = e.relu()?;
     println!("ReLU([-2, -1, 0, 1, 2]):");
     println!("{f}");
 
     // Sigmoid
     let g = Tensor::from_array(Array1::from_vec(vec![-1., 0., 1.]));
-    let h = g.sigmoid();
+    let h = g.sigmoid()?;
     println!("Sigmoid([-1, 0, 1]):");
     println!("{h}");
 

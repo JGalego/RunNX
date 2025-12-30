@@ -8,6 +8,8 @@ use runnx::{Graph, Model, Tensor};
 use std::collections::HashMap;
 use tempfile::NamedTempFile;
 
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 #[test]
 fn test_complete_workflow() {
     // Create a model
@@ -129,41 +131,39 @@ fn test_graph_validation() {
 }
 
 #[test]
-fn test_activation_functions_edge_cases() {
+fn test_activation_functions_edge_cases() -> Result<()> {
     use ndarray::Array1;
 
-    // Test ReLU with extreme values
-    let extreme_values = Tensor::from_array(Array1::from_vec(vec![
-        f32::NEG_INFINITY,
+    // Note: ReLU and Sigmoid will reject inputs with non-finite values (inf/nan)
+    // So we test with a range that doesn't include infinities
+    let test_values = Tensor::from_array(Array1::from_vec(vec![
         -1000.0,
         -1.0,
         0.0,
         1.0,
         1000.0,
-        f32::INFINITY,
     ]));
-    let relu_result = extreme_values.relu();
+    
+    let relu_result = test_values.relu()?;
     let relu_data = relu_result.data().as_slice().unwrap();
 
-    assert_eq!(relu_data[0], 0.0); // -infinity -> 0
-    assert_eq!(relu_data[1], 0.0); // -1000 -> 0
-    assert_eq!(relu_data[2], 0.0); // -1 -> 0
-    assert_eq!(relu_data[3], 0.0); // 0 -> 0
-    assert_eq!(relu_data[4], 1.0); // 1 -> 1
-    assert_eq!(relu_data[5], 1000.0); // 1000 -> 1000
-    assert_eq!(relu_data[6], f32::INFINITY); // infinity -> infinity
+    assert_eq!(relu_data[0], 0.0); // -1000 -> 0
+    assert_eq!(relu_data[1], 0.0); // -1 -> 0
+    assert_eq!(relu_data[2], 0.0); // 0 -> 0
+    assert_eq!(relu_data[3], 1.0); // 1 -> 1
+    assert_eq!(relu_data[4], 1000.0); // 1000 -> 1000
 
-    // Test Sigmoid with extreme values
-    let sigmoid_result = extreme_values.sigmoid();
+    // Test Sigmoid with test values
+    let sigmoid_result = test_values.sigmoid()?;
     let sigmoid_data = sigmoid_result.data().as_slice().unwrap();
 
-    assert_eq!(sigmoid_data[0], 0.0); // sigmoid(-infinity) = 0
-    assert!(sigmoid_data[1] < 1e-6); // sigmoid(-1000) ≈ 0
-    assert!(sigmoid_data[2] < 0.5); // sigmoid(-1) < 0.5
-    assert!((sigmoid_data[3] - 0.5).abs() < 1e-6); // sigmoid(0) = 0.5
-    assert!(sigmoid_data[4] > 0.5); // sigmoid(1) > 0.5
-    assert!(sigmoid_data[5] > 1.0 - 1e-6); // sigmoid(1000) ≈ 1
-    assert_eq!(sigmoid_data[6], 1.0); // sigmoid(infinity) = 1
+    assert!(sigmoid_data[0] < 1e-6); // sigmoid(-1000) ≈ 0
+    assert!(sigmoid_data[1] < 0.5); // sigmoid(-1) < 0.5
+    assert!((sigmoid_data[2] - 0.5).abs() < 1e-6); // sigmoid(0) = 0.5
+    assert!(sigmoid_data[3] > 0.5); // sigmoid(1) > 0.5
+    assert!(sigmoid_data[4] > 1.0 - 1e-6); // sigmoid(1000) ≈ 1
+    
+    Ok(())
 }
 
 #[tokio::test]
