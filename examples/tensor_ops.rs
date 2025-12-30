@@ -107,11 +107,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Input: {input}");
 
     // ReLU
-    let relu_output = input.relu();
+    let relu_output = input.relu()?;
     println!("ReLU: {relu_output}");
 
     // Sigmoid
-    let sigmoid_output = input.sigmoid();
+    let sigmoid_output = input.sigmoid()?;
     println!("Sigmoid: {sigmoid_output}");
 
     // Advanced operations
@@ -130,13 +130,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Start: {start}");
 
     // Apply ReLU then add a constant tensor
-    let step1 = start.relu(); // ReLU (no-op for positive values)
+    let step1 = start.relu()?; // ReLU (no-op for positive values)
     let constant = Tensor::from_array(Array2::from_shape_vec((2, 2), vec![0.1, 0.1, 0.1, 0.1])?);
     let step2 = step1.add(&constant)?;
     println!("After ReLU + 0.1: {step2}");
 
     // Then apply sigmoid
-    let final_result = step2.sigmoid();
+    let final_result = step2.sigmoid()?;
     println!("After sigmoid: {final_result}");
 
     // Performance demonstration

@@ -70,26 +70,26 @@ fn test_formal_relu_contracts_comprehensive() -> Result<()> {
         Tensor::from_array(Array2::from_shape_vec((2, 2), vec![-1.0, -2.0, -3.0, -4.0]).unwrap());
 
     // Test ReLU on mixed values
-    let result = mixed.relu();
+    let result = mixed.relu()?;
     let expected = Array2::from_shape_vec((2, 2), vec![0.0, 2.0, 0.0, 4.0]).unwrap();
     for (actual, expected) in result.data().iter().zip(expected.iter()) {
         assert!((actual - expected).abs() < 1e-6);
     }
 
     // Test ReLU on positive values (should be unchanged)
-    let positive_result = positive.relu();
+    let positive_result = positive.relu()?;
     assert_eq!(positive, positive_result);
 
     // Test ReLU on negative values (should be zero)
-    let negative_result = negative.relu();
+    let negative_result = negative.relu()?;
     let zero_tensor = Tensor::zeros(&[2, 2]);
     assert_eq!(negative_result, zero_tensor);
 
     // Test monotonicity: x >= y => relu(x) >= relu(y)
     let x = Tensor::from_array(Array2::from_elem((2, 2), 1.0));
     let y = Tensor::from_array(Array2::from_elem((2, 2), -1.0));
-    let relu_x = x.relu();
-    let relu_y = y.relu();
+    let relu_x = x.relu()?;
+    let relu_y = y.relu()?;
 
     for (rx, ry) in relu_x.data().iter().zip(relu_y.data().iter()) {
         assert!(rx >= ry);
@@ -132,11 +132,11 @@ fn test_invariant_monitor_comprehensive() -> Result<()> {
     let result = a.add(&b)?;
     assert_eq!(result.shape(), a.shape());
 
-    let c = result.relu();
+    let c = result.relu()?;
     assert_eq!(c.shape(), result.shape());
 
     let d = Tensor::from_array(Array2::from_elem((3, 3), 1.0));
-    let e = d.sigmoid();
+    let e = d.sigmoid()?;
     assert_eq!(e.shape(), d.shape());
 
     // Test data invariants
@@ -175,7 +175,7 @@ fn test_formal_contracts_error_handling() -> Result<()> {
 fn test_formal_properties_edge_cases() -> Result<()> {
     // Test with very small tensors
     let scalar_like = Tensor::from_array(Array2::from_shape_vec((1, 1), vec![42.0]).unwrap());
-    let relu_result = scalar_like.relu();
+    let relu_result = scalar_like.relu()?;
     let expected = Array2::from_shape_vec((1, 1), vec![42.0]).unwrap();
     for (actual, expected) in relu_result.data().iter().zip(expected.iter()) {
         assert!((actual - expected).abs() < 1e-6);
@@ -183,17 +183,17 @@ fn test_formal_properties_edge_cases() -> Result<()> {
 
     // Test with zero values
     let zero_tensor = Tensor::zeros(&[2, 2]);
-    let zero_relu = zero_tensor.relu();
+    let zero_relu = zero_tensor.relu()?;
     assert_eq!(zero_tensor, zero_relu);
 
-    let zero_sigmoid = zero_tensor.sigmoid();
+    let zero_sigmoid = zero_tensor.sigmoid()?;
     for &value in zero_sigmoid.data().iter() {
         assert!((value - 0.5).abs() < 1e-6);
     }
 
     // Test with large dimensions
     let large_tensor = Tensor::zeros(&[10, 10]);
-    let large_relu = large_tensor.relu();
+    let large_relu = large_tensor.relu()?;
     assert_eq!(large_tensor.shape(), large_relu.shape());
 
     Ok(())

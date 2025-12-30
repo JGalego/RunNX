@@ -78,17 +78,16 @@ mod formal_verification_tests {
             data in prop::collection::vec(prop::num::f32::NORMAL, 1..20)
         ) {
             if let Ok(tensor) = Tensor::from_shape_vec(&[data.len()], data) {
-                let relu1 = tensor.relu();
-                let relu2 = relu1.relu();
-                
-                // ReLU should be idempotent: ReLU(ReLU(x)) = ReLU(x)
-                for (a, b) in relu1.data().iter().zip(relu2.data().iter()) {
-                    prop_assert_eq!(*a, *b, "ReLU should be idempotent");
-                }
-                
-                // All ReLU outputs should be non-negative
-                for &value in relu1.data().iter() {
-                    prop_assert!(value >= 0.0, "ReLU output should be non-negative, got: {}", value);
+                if let (Ok(relu1), Ok(relu2)) = (tensor.relu(), tensor.relu().and_then(|t| t.relu())) {
+                    // ReLU should be idempotent: ReLU(ReLU(x)) = ReLU(x)
+                    for (a, b) in relu1.data().iter().zip(relu2.data().iter()) {
+                        prop_assert_eq!(*a, *b, "ReLU should be idempotent");
+                    }
+                    
+                    // All ReLU outputs should be non-negative
+                    for &value in relu1.data().iter() {
+                        prop_assert!(value >= 0.0, "ReLU output should be non-negative, got: {}", value);
+                    }
                 }
             }
         }
@@ -106,12 +105,14 @@ mod formal_verification_tests {
                 let shape = [rows, cols];
                 if let Ok(tensor) = Tensor::from_shape_vec(&shape, data[..rows*cols].to_vec()) {
                     // Test ReLU shape preservation
-                    let relu_result = tensor.relu();
-                    prop_assert_eq!(relu_result.shape(), tensor.shape());
+                    if let Ok(relu_result) = tensor.relu() {
+                        prop_assert_eq!(relu_result.shape(), tensor.shape());
+                    }
                     
                     // Test Sigmoid shape preservation
-                    let sigmoid_result = tensor.sigmoid();
-                    prop_assert_eq!(sigmoid_result.shape(), tensor.shape());
+                    if let Ok(sigmoid_result) = tensor.sigmoid() {
+                        prop_assert_eq!(sigmoid_result.shape(), tensor.shape());
+                    }
                     
                     // Test Softmax shape preservation
                     if let Ok(softmax_result) = tensor.softmax() {

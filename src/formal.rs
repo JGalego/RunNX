@@ -371,7 +371,7 @@ impl contracts::NmsContracts for Tensor {
 
 impl contracts::ActivationContracts for Tensor {
     fn relu_with_contracts(&self) -> Result<Tensor> {
-        let result = self.relu();
+        let result = self.relu()?;
 
         // Postcondition checks
         debug_assert_eq!(result.shape(), self.shape());
@@ -384,7 +384,7 @@ impl contracts::ActivationContracts for Tensor {
             }
 
             // Verify idempotency
-            let double_relu = result.relu();
+            let double_relu = result.relu()?;
             for (a, b) in result.data().iter().zip(double_relu.data().iter()) {
                 debug_assert_eq!(a, b, "ReLU must be idempotent");
             }
@@ -394,7 +394,7 @@ impl contracts::ActivationContracts for Tensor {
     }
 
     fn sigmoid_with_contracts(&self) -> Result<Tensor> {
-        let result = self.sigmoid();
+        let result = self.sigmoid()?;
 
         // Postcondition checks
         debug_assert_eq!(result.shape(), self.shape());
@@ -453,8 +453,12 @@ pub mod property_tests {
             .collect();
 
         match shape.len() {
+            1 => Tensor::from_shape_vec(&[shape[0]], data).expect("Failed to create 1D tensor"),
             2 => Tensor::from_array(Array2::from_shape_vec((shape[0], shape[1]), data).unwrap()),
-            _ => panic!("Only 2D tensors supported in this example"),
+            _ => {
+                // For N-dimensional tensors, use the generic from_shape_vec
+                Tensor::from_shape_vec(shape, data).expect("Failed to create N-D tensor")
+            }
         }
     }
 

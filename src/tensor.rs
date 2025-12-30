@@ -646,19 +646,29 @@ impl Tensor {
     /// use ndarray::Array1;
     ///
     /// let tensor = Tensor::from_array(Array1::from_vec(vec![-1.0, 0.0, 1.0, 2.0]));
-    /// let result = tensor.relu();
+    /// let result = tensor.relu().unwrap();
     ///
     /// let expected = vec![0.0, 0.0, 1.0, 2.0];
     /// for (actual, &expected) in result.data().iter().zip(expected.iter()) {
     ///     assert!((actual - expected).abs() < 1e-6);
     /// }
     /// ```
-    pub fn relu(&self) -> Tensor {
+    pub fn relu(&self) -> Result<Tensor> {
+        // Check for non-finite values that could cause numerical issues
+        if !self.data.iter().all(|&x| x.is_finite()) {
+            return Err(OnnxError::invalid_dimensions(
+                "Input contains non-finite values (NaN or Inf)".to_string(),
+            ));
+        }
+        
         let data = self.data.mapv(|x| x.max(0.0));
-        Tensor { data }
+        Ok(Tensor { data })
     }
 
     /// Apply Sigmoid activation (1 / (1 + exp(-x)))
+    ///
+    /// Uses numerically stable computation that clamps extreme values to prevent
+    /// overflow/underflow in the exponential function.
     ///
     /// # Examples
     ///
@@ -667,14 +677,33 @@ impl Tensor {
     /// use ndarray::Array1;
     ///
     /// let tensor = Tensor::from_array(Array1::from_vec(vec![0.0]));
-    /// let result = tensor.sigmoid();
+    /// let result = tensor.sigmoid().unwrap();
     ///
     /// // Sigmoid of 0 should be 0.5
     /// assert!((result.data()[0] - 0.5).abs() < 1e-6);
     /// ```
-    pub fn sigmoid(&self) -> Tensor {
-        let data = self.data.mapv(|x| 1.0 / (1.0 + (-x).exp()));
-        Tensor { data }
+    pub fn sigmoid(&self) -> Result<Tensor> {
+        // Check for non-finite values
+        if !self.data.iter().all(|&x| x.is_finite()) {
+            return Err(OnnxError::invalid_dimensions(
+                "Input contains non-finite values (NaN or Inf)".to_string(),
+            ));
+        }
+        
+        // Use numerically stable sigmoid: clamp extreme values
+        let data = self.data.mapv(|x| {
+            // Clamp to [-500, 500] to prevent exp overflow
+            let clamped = x.clamp(-500.0, 500.0);
+            if clamped >= 0.0 {
+                // For positive values: 1 / (1 + exp(-x))
+                1.0 / (1.0 + (-clamped).exp())
+            } else {
+                // For negative values: exp(x) / (1 + exp(x)) - more stable
+                let exp_x = clamped.exp();
+                exp_x / (1.0 + exp_x)
+            }
+        });
+        Ok(Tensor { data })
     }
 
     /// Applies the Softmax activation function along the last axis
@@ -1147,7 +1176,7 @@ mod tests {
     #[test]
     fn test_relu() {
         let tensor = Tensor::from_array(Array1::from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0]));
-        let result = tensor.relu();
+        let result = tensor.relu().unwrap();
 
         let expected = [0.0, 0.0, 0.0, 1.0, 2.0];
         for (actual, &expected) in result.data().iter().zip(expected.iter()) {
@@ -1158,7 +1187,7 @@ mod tests {
     #[test]
     fn test_relu_all_positive() {
         let tensor = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
-        let result = tensor.relu();
+        let result = tensor.relu().unwrap();
 
         // Should be unchanged for all positive values
         for (actual, expected) in result.data().iter().zip(tensor.data().iter()) {
@@ -1169,7 +1198,7 @@ mod tests {
     #[test]
     fn test_relu_all_negative() {
         let tensor = Tensor::from_array(Array1::from_vec(vec![-1.0, -2.0, -3.0]));
-        let result = tensor.relu();
+        let result = tensor.relu().unwrap();
 
         // Should be all zeros for all negative values
         assert!(result.data().iter().all(|&x| x == 0.0));
@@ -1178,7 +1207,7 @@ mod tests {
     #[test]
     fn test_sigmoid() {
         let tensor = Tensor::from_array(Array1::from_vec(vec![0.0]));
-        let result = tensor.sigmoid();
+        let result = tensor.sigmoid().unwrap();
 
         // Sigmoid of 0 should be 0.5
         assert!((result.data()[0] - 0.5).abs() < 1e-6);
@@ -1187,7 +1216,7 @@ mod tests {
     #[test]
     fn test_sigmoid_extreme_values() {
         let tensor = Tensor::from_array(Array1::from_vec(vec![-10.0, 10.0]));
-        let result = tensor.sigmoid();
+        let result = tensor.sigmoid().unwrap();
 
         let data = result.data();
         // Sigmoid of large negative should be close to 0
@@ -1199,7 +1228,7 @@ mod tests {
     #[test]
     fn test_sigmoid_symmetry() {
         let tensor = Tensor::from_array(Array1::from_vec(vec![-1.0, 1.0]));
-        let result = tensor.sigmoid();
+        let result = tensor.sigmoid().unwrap();
 
         let data = result.data();
         // Sigmoid is symmetric around 0.5: sigmoid(-x) + sigmoid(x) = 1
@@ -1266,8 +1295,8 @@ mod tests {
 
         let added = a.add(&b).unwrap();
         let multiplied = added.mul(&b).unwrap();
-        let relu_result = multiplied.relu();
-        let sigmoid_result = relu_result.sigmoid();
+        let relu_result = multiplied.relu().unwrap();
+        let sigmoid_result = relu_result.sigmoid().unwrap();
 
         assert_eq!(sigmoid_result.shape(), &[2, 2]);
         // All values should be positive after ReLU and between 0 and 1 after sigmoid

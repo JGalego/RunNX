@@ -508,11 +508,18 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
 
                             // OPTIMIZED: Direct indexing without additional bounds check
                             if h_in < height_in && w_in < width_in {
+                                // SAFETY: We've explicitly checked that:
+                                // - h_in < height_in and w_in < width_in (bounds check above)
+                                // - input_channel_offset is valid (computed from validated c_in)
+                                // - The total index is within input_slice bounds
                                 let input_val = unsafe {
                                     *input_slice.get_unchecked(
                                         input_channel_offset + h_in * width_in + w_in,
                                     )
                                 };
+                                // SAFETY: We've checked that:
+                                // - kh and kw are from valid_windows (within kernel bounds)
+                                // - kernel_input_offset is valid (from validated c_in and c_out)
                                 let kernel_val = unsafe {
                                     *kernel_slice
                                         .get_unchecked(kernel_input_offset + kh * kernel_w + kw)
@@ -558,6 +565,10 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
                 let end_idx = start_idx + output_channel_stride;
 
                 for i in start_idx..end_idx {
+                    // SAFETY: Same as above - bounds are guaranteed by construction
+                    // - bias_shape validated to be [1, channels_out, 1, 1]
+                    // - c_out < channels_out (from take(channels_out))
+                    // - i < end_idx <= output_data.len()
                     unsafe {
                         *output_data.get_unchecked_mut(i) += bias_val;
                     }
@@ -616,7 +627,7 @@ fn relu_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
         )));
     }
 
-    let result = inputs[0].relu();
+    let result = inputs[0].relu()?;
 
     #[cfg(feature = "formal-verification")]
     {
@@ -678,7 +689,7 @@ fn sigmoid_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
         )));
     }
 
-    let result = inputs[0].sigmoid();
+    let result = inputs[0].sigmoid()?;
 
     #[cfg(feature = "formal-verification")]
     {
@@ -2887,7 +2898,7 @@ mod tests {
     fn test_formal_relu_non_negativity() {
         // Test that ReLU output is always non-negative
         let tensor = Tensor::from_shape_vec(&[5], vec![-2.0, -1.0, 0.0, 1.0, 2.0]).unwrap();
-        let result = tensor.relu();
+        let result = tensor.relu().unwrap();
 
         for &value in result.data() {
             assert!(
@@ -2901,8 +2912,8 @@ mod tests {
     fn test_formal_relu_idempotency() {
         // Test that ReLU(ReLU(x)) = ReLU(x) (idempotency)
         let tensor = Tensor::from_shape_vec(&[5], vec![-2.0, -1.0, 0.0, 1.0, 2.0]).unwrap();
-        let result1 = tensor.relu();
-        let result2 = result1.relu();
+        let result1 = tensor.relu().unwrap();
+        let result2 = result1.relu().unwrap();
 
         assert_eq!(result1.data(), result2.data());
     }
@@ -2911,7 +2922,7 @@ mod tests {
     fn test_formal_sigmoid_bounded() {
         // Test that sigmoid output is always in (0, 1)
         let tensor = Tensor::from_shape_vec(&[5], vec![-10.0, -1.0, 0.0, 1.0, 10.0]).unwrap();
-        let result = tensor.sigmoid();
+        let result = tensor.sigmoid().unwrap();
 
         for &value in result.data() {
             assert!(
