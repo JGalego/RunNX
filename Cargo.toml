@@ -31,7 +31,8 @@ log = "0.4"
 env_logger = "0.11"
 
 # Image processing for examples
-image = "0.25"
+# Pinned to 0.25.5 for MSRV 1.85 compatibility (0.25.6+ requires Rust 1.87)
+image = "=0.25.5"
 imageproc = "0.25"
 
 # Optional features
