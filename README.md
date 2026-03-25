@@ -705,6 +705,14 @@ RunNX ships several opt-in performance features:
 sudo apt install libopenblas-dev
 cargo build --features blas
 
+# Windows (via vcpkg)
+vcpkg install openblas
+cargo build --features blas
+
+# Windows (via conda/mamba)
+conda install -c conda-forge openblas
+cargo build --features blas
+
 # Combine features freely
 cargo build --features "parallel,blas"
 ```
