@@ -78,3 +78,7 @@ path = "src/bin/runner.rs"
 [[example]]
 name = "simple_model"
 path = "examples/simple_model.rs"
+
+[[example]]
+name = "logistic_regression"
+path = "examples/logistic_regression.rs"
