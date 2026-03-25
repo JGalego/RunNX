@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-25
+
+### ⚡ Performance
+
+- **im2col Conv backend**: New high-performance convolution backend using im2col algorithm
+- **Optional BLAS support**: Optional OpenBLAS integration via `blas` feature flag for fastest SGEMM
+- **SIMD-accelerated unary ops**: Vectorized unary operations via the `wide` crate
+- **Parallel wave execution**: Optional multi-threaded graph execution via `rayon` (`parallel` feature)
+- **Arc-wrapped tensor data**: Reduced cloning overhead with shared tensor storage
+
+### ✨ Features
+
+- **Logistic regression example**: New end-to-end example demonstrating logistic regression inference
+
+### 🐛 Bug Fixes
+
+- Fixed BLAS feature on Windows CI; link against system OpenBLAS
+- Hardened tensor ops, graph validation, and formal verification specs
+- Improved safety, error handling, and numerical stability throughout
+
+### 📚 Documentation
+
+- Documented Conv backends, feature flags, and build configuration
+- Pinned `image` dependency to 0.25.5 for MSRV 1.85 compatibility
+- Added Creusot integration notes to roadmap
+
+### 🧪 Tests
+
+- Improved `operators.rs` coverage
+- Fixed weak assertions in operator coverage tests
+
 ## [0.2.1] - 2025-09-01
 
 ### 🚀 Enhancements
