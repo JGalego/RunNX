@@ -1,97 +1,5 @@
 # Quick Start Guide
 
-Get up and running with RunNX in just a few minutes! This guide will walk you through the basics of using RunNX for ONNX model inference.
-
-## Prerequisites
-
-RunNX requires the Protocol Buffers compiler (`protoc`) to build. Install it for your platform:
-
-### Ubuntu/Debian
-```bash
-sudo apt-get install protobuf-compiler
-```
-
-### macOS
-```bash
-brew install protobuf
-```
-
-### Windows
-```bash
-choco install protoc
-```
-
-## Installation
-
-### As a Library
-
-Add RunNX to your `Cargo.toml`:
-
-```toml
-[dependencies]
-runnx = "0.2.0"
-```
-
-### From Source
-
-```bash
-git clone https://github.com/jgalego/runnx.git
-cd runnx
-cargo build --release
-```
-
-## Basic Usage
-
-### Loading and Running Models
-
-```rust
-use runnx::{Model, Tensor};
-
-// Load a model (supports both JSON and ONNX binary formats)
-let model = Model::from_file("model.onnx")?;  // Auto-detects format
-
-// Create input tensor
-let input = Tensor::from_array(ndarray::array![[1.0, 2.0, 3.0]]);
-
-// Run inference
-let outputs = model.run(&[("input", input)])?;
-
-// Get results
-let result = outputs.get("output").unwrap();
-println!("Result: {:?}", result.data());
-```
-
-### Format Support
-
-RunNX supports both JSON and ONNX binary formats with automatic detection:
-
-```rust
-// Auto-detection based on file extension
-let json_model = Model::from_file("model.json")?;   // JSON format
-let onnx_model = Model::from_file("model.onnx")?;   // Binary ONNX
-
-// Explicit format specification
-let json_model = Model::from_json_file("model.json")?;
-let onnx_model = Model::from_onnx_file("model.onnx")?;
-```
-
-### Saving Models
-
-```rust
-let model = /* ... create or load model ... */;
-
-// Save in different formats
-model.to_file("output.onnx")?;        // Auto-detects format from extension
-model.to_onnx_file("binary.onnx")?;   // Explicit binary ONNX format
-model.to_json_file("readable.json")?; // Explicit JSON format
-```
-
-## Command Line Usage
-
-RunNX includes a command-line runner for quick model testing:
-
-# Quick Start Guide
-
 Get up and running with RunNX in just a few minutes! This guide will walk you through the basics of using RunNX for ONNX model inference, including the powerful YOLOv8 object detection capabilities.
 
 ## Prerequisites
@@ -121,7 +29,7 @@ Add RunNX to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-runnx = "0.2.0"
+runnx = "0.2.1"
 ```
 
 ### From Source

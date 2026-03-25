@@ -65,7 +65,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-runnx = "0.2.0"
+runnx = "0.2.1"
 ```
 
 ### Basic Usage
@@ -925,7 +925,7 @@ This project is licensed under
 
 ### 📚 Additional Resources
 
-- **[Release Notes](RELEASE_NOTES_0.2.0.md)** - What's new in the latest version
+- **[Release Notes](CHANGELOG.md#021---2025-09-01)** - What's new in the latest version (v0.2.1)
 - **[Complete Changelog](CHANGELOG.md)** - Full history of changes
 - **[Release History](docs/releases/)** - All previous release notes
 - **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to RunNX
