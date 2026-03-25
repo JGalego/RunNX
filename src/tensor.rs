@@ -259,8 +259,14 @@ impl Tensor {
 
     /// Element-wise exponential
     pub fn exp(&self) -> Result<Tensor> {
+        let mut out = self.data.as_ref().clone();
+        if let Some(s) = out.as_slice_mut() {
+            crate::simd::exp(s);
+        } else {
+            out.mapv_inplace(|x| x.exp());
+        }
         Ok(Tensor {
-            data: Arc::new(self.data.mapv(|x| x.exp())),
+            data: Arc::new(out),
         })
     }
 
@@ -274,8 +280,14 @@ impl Tensor {
                 "Square root requires non-negative input values".to_string(),
             ));
         }
+        let mut out = self.data.as_ref().clone();
+        if let Some(s) = out.as_slice_mut() {
+            crate::simd::sqrt(s);
+        } else {
+            out.mapv_inplace(|x| x.sqrt());
+        }
         Ok(Tensor {
-            data: Arc::new(self.data.mapv(|x| x.sqrt())),
+            data: Arc::new(out),
         })
     }
 
@@ -622,9 +634,14 @@ impl Tensor {
             ));
         }
 
-        let data = self.data.mapv(|x| x.max(0.0));
+        let mut out = self.data.as_ref().clone();
+        if let Some(s) = out.as_slice_mut() {
+            crate::simd::relu(s);
+        } else {
+            out.mapv_inplace(|x| x.max(0.0));
+        }
         Ok(Tensor {
-            data: Arc::new(data),
+            data: Arc::new(out),
         })
     }
 
@@ -653,21 +670,17 @@ impl Tensor {
             ));
         }
 
-        // Use numerically stable sigmoid: clamp extreme values
-        let data = self.data.mapv(|x| {
-            // Clamp to [-500, 500] to prevent exp overflow
-            let clamped = x.clamp(-500.0, 500.0);
-            if clamped >= 0.0 {
-                // For positive values: 1 / (1 + exp(-x))
+        let mut out = self.data.as_ref().clone();
+        if let Some(s) = out.as_slice_mut() {
+            crate::simd::sigmoid(s);
+        } else {
+            out.mapv_inplace(|x| {
+                let clamped = x.clamp(-88.0, 88.0);
                 1.0 / (1.0 + (-clamped).exp())
-            } else {
-                // For negative values: exp(x) / (1 + exp(x)) - more stable
-                let exp_x = clamped.exp();
-                exp_x / (1.0 + exp_x)
-            }
-        });
+            });
+        }
         Ok(Tensor {
-            data: Arc::new(data),
+            data: Arc::new(out),
         })
     }
 
