@@ -275,6 +275,57 @@ impl Graph {
         Ok(result)
     }
 
+    /// Group nodes into parallel execution waves.
+    ///
+    /// Returns a list of levels where every node in a level is independent of
+    /// every other node in that level (no data edges between them).  Nodes in
+    /// the same level can be executed concurrently; levels must be executed in
+    /// order.
+    pub fn topological_levels(&self) -> Result<Vec<Vec<usize>>> {
+        let n = self.nodes.len();
+        if n == 0 {
+            return Ok(vec![]);
+        }
+
+        // tensor_level[t] = the wave after which tensor t is available.
+        // Graph inputs and initializers are available before wave 0 → level 0.
+        let mut tensor_level: HashMap<&str, usize> = HashMap::new();
+        for input in &self.inputs {
+            tensor_level.insert(input.name.as_str(), 0);
+        }
+        for name in self.initializers.keys() {
+            tensor_level.insert(name.as_str(), 0);
+        }
+
+        // Process nodes in topological order so dependencies are resolved first.
+        let topo_order = self.topological_sort()?;
+        let mut node_level = vec![0usize; n];
+
+        for &idx in &topo_order {
+            let node = &self.nodes[idx];
+            // A node's wave = max wave of all its input tensors.
+            let level = node
+                .inputs
+                .iter()
+                .filter_map(|name| tensor_level.get(name.as_str()).copied())
+                .max()
+                .unwrap_or(0);
+            node_level[idx] = level;
+            // Outputs produced by this node become available at level + 1.
+            for output in &node.outputs {
+                tensor_level.insert(output.as_str(), level + 1);
+            }
+        }
+
+        let max_level = node_level.iter().copied().max().unwrap_or(0);
+        let mut levels: Vec<Vec<usize>> = vec![vec![]; max_level + 1];
+        for (idx, &lvl) in node_level.iter().enumerate() {
+            levels[lvl].push(idx);
+        }
+
+        Ok(levels)
+    }
+
     /// Print the graph structure in a visual ASCII format
     pub fn print_graph(&self) {
         // Calculate the width needed for the graph name

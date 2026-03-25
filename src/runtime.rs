@@ -5,11 +5,14 @@
 
 use crate::{
     error::{OnnxError, Result},
-    graph::{Graph, Node},
+    graph::Graph,
     operators,
     tensor::Tensor,
 };
 use std::collections::HashMap;
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 /// Runtime execution engine for ONNX models
 pub struct Runtime {
@@ -113,13 +116,86 @@ impl Runtime {
             context.add_tensor(name.clone(), tensor.clone());
         }
 
-        // Get execution order
-        let execution_order = graph.topological_sort()?;
+        // Group nodes into independent waves; nodes within the same wave
+        // have no data dependencies on each other and can run in parallel.
+        let levels = graph.topological_levels()?;
+        let debug = self.debug;
 
-        // Execute nodes in order
-        for &node_idx in &execution_order {
-            let node = &graph.nodes[node_idx];
-            self.execute_node(node, &mut context)?;
+        for level_nodes in &levels {
+            // Phase 1: gather inputs for every node in this wave (sequential,
+            // read-only access to context).
+            let work: Vec<(usize, Vec<Tensor>)> = level_nodes
+                .iter()
+                .map(|&node_idx| {
+                    let node = &graph.nodes[node_idx];
+                    let inputs = node
+                        .inputs
+                        .iter()
+                        .map(|name| {
+                            context.get_tensor(name).cloned().ok_or_else(|| {
+                                OnnxError::runtime_error(format!(
+                                    "Node '{}' references unknown tensor '{}'",
+                                    node.name, name
+                                ))
+                            })
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    Ok((node_idx, inputs))
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            // Phase 2: run operators — parallel when the `parallel` feature is
+            // enabled, sequential otherwise.
+            let run = |(node_idx, inputs): (usize, Vec<Tensor>)| -> (usize, Result<Vec<Tensor>>) {
+                let node = &graph.nodes[node_idx];
+                if debug {
+                    log::debug!("Executing node '{}' ({})", node.name, node.op_type);
+                    for (i, t) in inputs.iter().enumerate() {
+                        log::debug!("  Input {}: shape {:?}", i, t.shape());
+                    }
+                }
+                let result = node.get_operator_type().and_then(|op_type| {
+                    operators::execute_operator(&op_type, &inputs, &node.attributes).map_err(|e| {
+                        OnnxError::runtime_error(format!(
+                            "Failed to execute {:?} ({}): {}",
+                            op_type, node.name, e
+                        ))
+                    })
+                });
+                (node_idx, result)
+            };
+
+            #[cfg(feature = "parallel")]
+            let results: Vec<(usize, Result<Vec<Tensor>>)> =
+                work.into_par_iter().map(run).collect();
+            #[cfg(not(feature = "parallel"))]
+            let results: Vec<(usize, Result<Vec<Tensor>>)> = work.into_iter().map(run).collect();
+
+            // Phase 3: store outputs sequentially and update stats.
+            for (node_idx, outputs_result) in results {
+                let node = &graph.nodes[node_idx];
+                let output_tensors = outputs_result?;
+
+                if output_tensors.len() != node.outputs.len() {
+                    return Err(OnnxError::runtime_error(format!(
+                        "Node '{}' produced {} outputs but expected {}",
+                        node.name,
+                        output_tensors.len(),
+                        node.outputs.len()
+                    )));
+                }
+
+                if debug {
+                    for (i, t) in output_tensors.iter().enumerate() {
+                        log::debug!("  Output {}: shape {:?}", i, t.shape());
+                    }
+                }
+
+                for (name, tensor) in node.outputs.iter().zip(output_tensors) {
+                    context.add_tensor(name.clone(), tensor);
+                }
+                context.stats.ops_executed += 1;
+            }
         }
 
         // Extract outputs
@@ -170,87 +246,6 @@ impl Runtime {
                     tensor.shape(),
                 ));
             }
-        }
-
-        Ok(())
-    }
-
-    /// Execute a single node
-    fn execute_node(&self, node: &Node, context: &mut ExecutionContext) -> Result<()> {
-        let node_start = std::time::Instant::now();
-
-        if self.debug {
-            log::debug!("Executing node '{}' ({})", node.name, node.op_type);
-        }
-
-        // Gather input tensors
-        let input_tensors: Vec<Tensor> = node
-            .inputs
-            .iter()
-            .map(|name| {
-                context
-                    .get_tensor(name)
-                    .ok_or_else(|| {
-                        OnnxError::runtime_error(format!(
-                            "Node '{}' references unknown tensor '{}'",
-                            node.name, name
-                        ))
-                    })
-                    .cloned()
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        // Log input shapes for debugging
-        if self.debug {
-            for (i, tensor) in input_tensors.iter().enumerate() {
-                log::debug!("  Input {}: shape {:?}", i, tensor.shape());
-            }
-        }
-
-        // Execute the operator
-        let op_type = node.get_operator_type()?;
-        let output_tensors =
-            operators::execute_operator(&op_type, &input_tensors, &node.attributes).map_err(
-                |e| {
-                    OnnxError::runtime_error(format!(
-                        "Failed to execute {:?} ({}): {}",
-                        op_type, node.name, e
-                    ))
-                },
-            )?;
-
-        // Log output shapes for debugging
-        if self.debug {
-            for (i, tensor) in output_tensors.iter().enumerate() {
-                log::debug!("  Output {}: shape {:?}", i, tensor.shape());
-            }
-        }
-
-        // Store output tensors
-        if output_tensors.len() != node.outputs.len() {
-            return Err(OnnxError::runtime_error(format!(
-                "Node '{}' produced {} outputs but expected {}",
-                node.name,
-                output_tensors.len(),
-                node.outputs.len()
-            )));
-        }
-
-        for (output_name, output_tensor) in node.outputs.iter().zip(output_tensors.into_iter()) {
-            context.add_tensor(output_name.clone(), output_tensor);
-        }
-
-        // Update statistics
-        let execution_time = node_start.elapsed().as_millis() as f64;
-        context.stats.ops_executed += 1;
-        *context
-            .stats
-            .op_times
-            .entry(node.op_type.clone())
-            .or_insert(0.0) += execution_time;
-
-        if self.debug {
-            log::debug!("Node '{}' executed in {:.2}ms", node.name, execution_time);
         }
 
         Ok(())
