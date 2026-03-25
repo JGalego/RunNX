@@ -83,6 +83,7 @@ pub mod model;
 pub mod operators;
 pub mod proto;
 pub mod runtime;
+pub(crate) mod simd;
 pub mod tensor;
 
 // Re-export main types
