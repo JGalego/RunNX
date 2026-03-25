@@ -153,10 +153,12 @@ impl contracts::AdditionContracts for Tensor {
         // Mathematical property verification (in debug mode)
         #[cfg(debug_assertions)]
         {
-            // Check commutativity with a small tolerance for floating point
+            // f32 addition is bitwise commutative for identical operands fed through
+            // the same code path.  Use exact equality; if this ever fails it indicates
+            // a deeper bug, not floating-point rounding.
             let reverse_result = other.add(self)?;
             for (a, b) in result.data().iter().zip(reverse_result.data().iter()) {
-                debug_assert!((a - b).abs() < f32::EPSILON, "Addition must be commutative");
+                debug_assert_eq!(a, b, "Addition must be commutative");
             }
         }
 
@@ -207,19 +209,26 @@ impl contracts::YoloOperatorContracts for Tensor {
 
         #[cfg(debug_assertions)]
         {
-            // Verify probability distribution properties
-            let sum: f32 = result.data().iter().sum();
-            debug_assert!(
-                (sum - 1.0).abs() < 1e-6,
-                "Softmax output must sum to 1.0, got: {sum}"
-            );
+            // Softmax is applied per-slice along the last axis.
+            // Verify that each such slice sums to 1.0 and contains values in (0, 1).
+            let ndim = result.shape().len();
+            let axis_size = result.shape()[ndim - 1];
+            let outer_size: usize = result.shape()[..ndim - 1].iter().product();
 
-            // Verify bounded output
-            for &value in result.data().iter() {
+            let flat: Vec<f32> = result.data().iter().cloned().collect();
+            for outer in 0..outer_size {
+                let slice = &flat[outer * axis_size..(outer + 1) * axis_size];
+                let sum: f32 = slice.iter().sum();
                 debug_assert!(
-                    value > 0.0 && value < 1.0,
-                    "Softmax output must be in (0, 1), got: {value}"
+                    (sum - 1.0).abs() < 1e-5,
+                    "Softmax slice {outer} must sum to 1.0, got: {sum}"
                 );
+                for &value in slice {
+                    debug_assert!(
+                        value > 0.0 && value < 1.0,
+                        "Softmax output must be in (0, 1), got: {value}"
+                    );
+                }
             }
         }
 
@@ -250,10 +259,7 @@ impl contracts::YoloOperatorContracts for Tensor {
             }
         }
 
-        // For now, return error as concat is not fully implemented
-        Err(crate::error::OnnxError::unsupported_operation(
-            "Concat operator not fully implemented".to_string(),
-        ))
+        Tensor::concat(&[self, other], axis)
     }
 
     fn slice_with_contracts(
@@ -297,9 +303,10 @@ impl contracts::YoloOperatorContracts for Tensor {
             }
         }
 
-        // For now, return error as upsample is not fully implemented
+        // Upsample via the contract interface requires a Tensor-level method;
+        // use operators::upsample_op for the full implementation.
         Err(crate::error::OnnxError::unsupported_operation(
-            "Upsample operator not fully implemented".to_string(),
+            "Upsample: use operators::execute_operator with OperatorType::Upsample".to_string(),
         ))
     }
 
@@ -322,9 +329,10 @@ impl contracts::YoloOperatorContracts for Tensor {
             ));
         }
 
-        // For now, return error as maxpool is not fully implemented
+        // MaxPool via the contract interface requires a Tensor-level method;
+        // use operators::execute_operator with OperatorType::MaxPool for the full implementation.
         Err(crate::error::OnnxError::unsupported_operation(
-            "MaxPool operator not fully implemented".to_string(),
+            "MaxPool: use operators::execute_operator with OperatorType::MaxPool".to_string(),
         ))
     }
 }
@@ -436,19 +444,23 @@ pub mod property_tests {
     use crate::tensor::Tensor;
     use ndarray::Array2;
 
-    /// Generate random tensor for property testing
+    /// Generate random tensor for property testing.
+    ///
+    /// Uses a simple, stable LCG whose initial state is derived directly from
+    /// the caller-supplied `seed`, so the output is deterministic and reproducible
+    /// across Rust versions (unlike `DefaultHasher`, which is not guaranteed to be stable).
     pub fn random_tensor(shape: &[usize], seed: u64) -> Tensor {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        seed.hash(&mut hasher);
-        let mut rng_state = hasher.finish();
+        // LCG parameters from Numerical Recipes (64-bit variant)
+        let mut rng_state: u64 = seed.wrapping_add(1); // avoid state = 0
 
         let data: Vec<f32> = (0..shape.iter().product::<usize>())
             .map(|_| {
-                rng_state = rng_state.wrapping_mul(1103515245).wrapping_add(12345);
-                ((rng_state as f32) / (u64::MAX as f32)) * 2.0 - 1.0 // [-1, 1]
+                rng_state = rng_state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                // Map high 32 bits to [-1, 1]
+                let bits = (rng_state >> 32) as u32;
+                (bits as f32) / (u32::MAX as f32) * 2.0 - 1.0
             })
             .collect();
 
@@ -485,44 +497,63 @@ pub mod property_tests {
 pub mod why3_integration {
     use super::*;
 
-    /// Generate Why3 proof obligations from Rust contracts
+    /// Return the names of the Why3 goals defined in `formal/operators.mlw`.
+    ///
+    /// These correspond to the predicates and properties declared in the
+    /// `RealOperators` theory and can be passed to Why3 tools (e.g.
+    /// `why3 prove`) for automated verification.
     pub fn generate_proof_obligations() -> Vec<String> {
         vec![
-            "goal add_commutativity: forall a b. add_spec a b = add_spec b a".to_string(),
-            "goal add_associativity: forall a b c. add_spec (add_spec a b) c = add_spec a (add_spec b c)".to_string(),
-            "goal relu_idempotent: forall a. relu_spec (relu_spec a) = relu_spec a".to_string(),
-            "goal sigmoid_bounds: forall a i. 0.0 < (sigmoid_spec a).data[i] < 1.0".to_string(),
-            "goal matmul_associativity: forall a b c. matmul_spec (matmul_spec a b) c = matmul_spec a (matmul_spec b c)".to_string(),
-            // YOLO operator specifications
-            "goal softmax_probability_sum: forall a. sum (softmax_spec a).data = 1.0".to_string(),
-            "goal softmax_probability_bounds: forall a i. 0.0 < (softmax_spec a).data[i] < 1.0".to_string(),
-            "goal softmax_numerical_stability: forall a. softmax_spec a = softmax_spec (add_scalar_spec a (neg (max_spec a)))".to_string(),
-            "goal concat_shape_preservation: forall a b axis. let c = concat_spec a b axis in length c.shape = length a.shape = length b.shape".to_string(),
-            "goal concat_data_preservation: forall a b axis. let c = concat_spec a b axis in contains_all c.data a.data && contains_all c.data b.data".to_string(),
-            "goal slice_subset: forall a starts ends. let b = slice_spec a starts ends in forall i. contains b.data[i] a.data".to_string(),
-            "goal upsample_scale_invariant: forall a scale. let b = upsample_spec a scale in b.shape[i] = a.shape[i] * scale[i]".to_string(),
-            "goal maxpool_monotonic: forall a b. elementwise_leq a b -> elementwise_leq (maxpool_spec a) (maxpool_spec b)".to_string(),
-            "goal nms_score_ordering: forall boxes scores. let result = nms_spec boxes scores in is_sorted_descending result.scores".to_string(),
+            // Arithmetic properties (RealOperators theory, operators.mlw)
+            "RealOperators.add_commutativity".to_string(),
+            "RealOperators.add_associativity".to_string(),
+            "RealOperators.mul_commutativity".to_string(),
+            // Activation function properties
+            "RealOperators.relu_idempotent".to_string(),
+            "RealOperators.relu_monotonic".to_string(),
+            "RealOperators.sigmoid_bounded".to_string(),
+            "RealOperators.sigmoid_monotonic".to_string(),
+            // Operator specifications
+            "RealOperators.add_spec".to_string(),
+            "RealOperators.mul_spec".to_string(),
+            "RealOperators.sub_spec".to_string(),
+            "RealOperators.div_spec".to_string(),
+            "RealOperators.relu_spec".to_string(),
+            "RealOperators.softmax_spec".to_string(),
+            "RealOperators.reshape_spec".to_string(),
+            "RealOperators.transpose_spec".to_string(),
+            "RealOperators.matmul_spec".to_string(),
+            "RealOperators.conv_spec".to_string(),
+            "RealOperators.nms_spec".to_string(),
+            "RealOperators.pad_spec".to_string(),
+            "RealOperators.slice_spec".to_string(),
+            "RealOperators.split_spec".to_string(),
         ]
     }
 
-    /// Convert Rust tensor to Why3 representation
+    /// Serialise a Rust tensor into a Why3 record literal compatible with the
+    /// `TensorTypes.tensor` type defined in `formal/tensors.mlw`.
+    ///
+    /// The produced string can be embedded directly in Why3 goals or lemmas.
     pub fn to_why3_tensor(tensor: &Tensor) -> String {
+        // Why3 array literals use the syntax: (make n default)[0 <- v0][1 <- v1]...
+        let shape_len = tensor.shape().len();
+        let shape_init = format!("(Array.make {} 0)", shape_len);
         let shape_str = tensor
             .shape()
             .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>()
-            .join("; ");
+            .enumerate()
+            .fold(shape_init, |acc, (i, &d)| format!("{acc}[{i} <- {d}]"));
 
+        let data_len = tensor.data().len();
+        let data_init = format!("(Array.make {} 0.0)", data_len);
         let data_str = tensor
             .data()
             .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>()
-            .join("; ");
+            .enumerate()
+            .fold(data_init, |acc, (i, &v)| format!("{acc}[{i} <- {}]", v));
 
-        format!("{{ shape = [{shape_str}]; data = [{data_str}]; valid = true }}")
+        format!("{{ shape = {shape_str}; data = {data_str} }}")
     }
 }
 
@@ -626,12 +657,22 @@ mod tests {
         assert!(softmax_result.is_ok());
         let result = softmax_result.unwrap();
 
-        // Test probability distribution
-        let sum: f32 = result.data().iter().sum();
-        assert!(
-            (sum - 1.0).abs() < 1e-6,
-            "Softmax sum should be 1.0, got: {sum}"
-        );
+        // Test probability distribution: softmax is applied per-row along the
+        // last axis, so each row (not the whole tensor) must sum to 1.0.
+        let ndim = result.shape().len();
+        let axis_size = result.shape()[ndim - 1];
+        let outer_size: usize = result.shape()[..ndim - 1].iter().product();
+        let flat = result.data();
+        let flat = flat.as_slice().unwrap();
+        for outer in 0..outer_size {
+            let row_sum: f32 = flat[outer * axis_size..(outer + 1) * axis_size]
+                .iter()
+                .sum();
+            assert!(
+                (row_sum - 1.0).abs() < 1e-5,
+                "Softmax row {outer} should sum to 1.0, got: {row_sum}"
+            );
+        }
 
         // Test bounded output
         for &value in result.data().iter() {

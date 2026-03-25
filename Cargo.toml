@@ -28,12 +28,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 prost = "0.14.1"
 log = "0.4"
+# env_logger is a concrete logger implementation required by the runnx-runner binary.
+# Library users should bring their own logger; the library itself only uses `log`.
 env_logger = "0.11"
-
-# Image processing for examples
-# Pinned to 0.25.5 for MSRV 1.85 compatibility (0.25.6+ requires Rust 1.87)
-image = "=0.25.5"
-imageproc = "0.25"
 
 # Optional features
 tokio = { version = "1.0", features = ["full"], optional = true }
@@ -42,11 +39,14 @@ tokio = { version = "1.0", features = ["full"], optional = true }
 prost-build = "0.14.1"
 
 [dev-dependencies]
-env_logger = "0.11"
 criterion = { version = "0.7.0", features = ["html_reports"] }
 tempfile = "3.8"
 tokio = { version = "1.0", features = ["macros", "rt"] }
 proptest = "1.4"
+# Image processing — only used by examples and benchmarks, not the library.
+# Pinned to 0.25.5 for MSRV 1.85 compatibility (0.25.6+ requires Rust 1.87).
+image = "=0.25.5"
+imageproc = "0.25"
 
 # Note: For code coverage, run `./scripts/coverage.sh` to exclude auto-generated files
 
