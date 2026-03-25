@@ -453,37 +453,65 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
     let input_data = input.data();
     let kernel_data = kernel.data();
 
+    // Use flat slice indexing to avoid per-element coordinate→index conversion
+    let input_flat = input_data
+        .as_slice_memory_order()
+        .expect("Conv: input tensor must be contiguous");
+    let kernel_flat = kernel_data
+        .as_slice_memory_order()
+        .expect("Conv: kernel tensor must be contiguous");
+
+    // Precompute strides for input [N, C_in, H_in, W_in]
+    let in_c_stride = height_in * width_in;
+    let in_n_stride = channels_in * in_c_stride;
+
+    // Precompute strides for kernel [C_out, C_in, K_h, K_w]
+    let k_kh_stride = kernel_w;
+    let k_cin_stride = kernel_h * k_kh_stride;
+    let k_cout_stride = channels_in * k_cin_stride;
+
     // Stride values for navigating the output buffer
     let output_channel_stride = height_out * width_out;
     let output_batch_stride = channels_out * output_channel_stride;
 
     for n in 0..batch_size {
         let output_batch_offset = n * output_batch_stride;
+        let in_n_offset = n * in_n_stride;
 
         for c_out in 0..channels_out {
             let output_channel_offset = output_batch_offset + c_out * output_channel_stride;
+            let k_cout_offset = c_out * k_cout_stride;
 
             for h_out in 0..height_out {
                 for w_out in 0..width_out {
                     let mut sum = 0.0f32;
 
                     for c_in in 0..channels_in {
+                        let in_cin_offset = in_n_offset + c_in * in_c_stride;
+                        let k_cin_offset = k_cout_offset + c_in * k_cin_stride;
+
                         for kh in 0..kernel_h {
+                            let h_in_padded = h_out * stride_h + kh;
+
+                            // Skip padding rows
+                            if h_in_padded < pad_top || h_in_padded >= height_in + pad_top {
+                                continue;
+                            }
+                            let h_in = h_in_padded - pad_top;
+                            let in_h_offset = in_cin_offset + h_in * width_in;
+                            let k_kh_offset = k_cin_offset + kh * k_kh_stride;
+
                             for kw in 0..kernel_w {
-                                let h_in_padded = h_out * stride_h + kh;
                                 let w_in_padded = w_out * stride_w + kw;
 
-                                // Skip padding regions
-                                if h_in_padded >= pad_top
-                                    && h_in_padded < height_in + pad_top
-                                    && w_in_padded >= pad_left
-                                    && w_in_padded < width_in + pad_left
-                                {
-                                    let h_in = h_in_padded - pad_top;
-                                    let w_in = w_in_padded - pad_left;
-                                    sum += input_data[[n, c_in, h_in, w_in]]
-                                        * kernel_data[[c_out, c_in, kh, kw]];
+                                // Skip padding columns
+                                if w_in_padded < pad_left || w_in_padded >= width_in + pad_left {
+                                    continue;
                                 }
+                                let w_in = w_in_padded - pad_left;
+
+                                sum +=
+                                    input_flat[in_h_offset + w_in] * kernel_flat[k_kh_offset + kw];
                             }
                         }
                     }

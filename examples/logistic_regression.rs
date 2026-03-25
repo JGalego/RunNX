@@ -34,16 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut graph = Graph::new("logistic_regression".to_string());
 
     // Input: batch of samples, shape [N, 2]
-    graph.add_input(TensorSpec::new(
-        "input".to_string(),
-        vec![None, Some(2)],
-    ));
+    graph.add_input(TensorSpec::new("input".to_string(), vec![None, Some(2)]));
 
     // Output: predicted probabilities, shape [N, 1]
-    graph.add_output(TensorSpec::new(
-        "output".to_string(),
-        vec![None, Some(1)],
-    ));
+    graph.add_output(TensorSpec::new("output".to_string(), vec![None, Some(1)]));
 
     graph.add_initializer("weights".to_string(), weights);
     graph.add_initializer("bias".to_string(), bias);
@@ -94,9 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Samples: [[1, 2], [3, 4], [-1, -2], [0.5, -0.5]]
     let input_data = vec![1.0_f32, 2.0, 3.0, 4.0, -1.0, -2.0, 0.5, -0.5];
-    let input_tensor = Tensor::from_array(
-        Array2::from_shape_vec((4, 2), input_data)?.into_dyn(),
-    );
+    let input_tensor = Tensor::from_array(Array2::from_shape_vec((4, 2), input_data)?.into_dyn());
 
     println!("Input shape: {:?}", input_tensor.shape());
 
@@ -105,7 +97,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start = std::time::Instant::now();
     let outputs = model.run(&inputs)?;
-    println!("Inference completed in {:.2}µs", start.elapsed().as_micros());
+    println!(
+        "Inference completed in {:.2}µs",
+        start.elapsed().as_micros()
+    );
 
     // -----------------------------------------------------------------------
     // 3. Display and verify results
@@ -120,7 +115,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     for (i, p) in probs_slice.iter().enumerate() {
-        println!("  Sample {}: probability = {:.6}  (class = {})", i, p, if *p >= 0.5 { 1 } else { 0 });
+        println!(
+            "  Sample {}: probability = {:.6}  (class = {})",
+            i,
+            p,
+            if *p >= 0.5 { 1 } else { 0 }
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -137,10 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     // sigmoid(z) = 1 / (1 + exp(-z))
     let logits = [0.0_f32, 0.4, 0.2, 0.5];
-    let expected: Vec<f32> = logits
-        .iter()
-        .map(|&z| 1.0 / (1.0 + (-z).exp()))
-        .collect();
+    let expected: Vec<f32> = logits.iter().map(|&z| 1.0 / (1.0 + (-z).exp())).collect();
 
     println!("Expected: {:?}", expected);
     println!("Actual:   {:?}", probs_slice);
