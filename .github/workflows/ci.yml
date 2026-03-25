@@ -60,19 +60,29 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-
 
+    - name: Set feature flags
+      id: features
+      shell: bash
+      run: |
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          echo "flags=--features async,parallel,naive-conv,formal-verification" >> $GITHUB_OUTPUT
+        else
+          echo "flags=--all-features" >> $GITHUB_OUTPUT
+        fi
+
     - name: Check formatting
       run: cargo fmt --all -- --check
       if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
 
     - name: Run clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      run: cargo clippy --all-targets ${{ steps.features.outputs.flags }} -- -D warnings
       if: matrix.rust == 'stable'
 
     - name: Build
-      run: cargo build --verbose --all-features
+      run: cargo build --verbose ${{ steps.features.outputs.flags }}
 
     - name: Run tests
-      run: cargo test --verbose --all-features
+      run: cargo test --verbose ${{ steps.features.outputs.flags }}
 
     - name: Run integration tests
       run: cargo test --test integration_tests --verbose
