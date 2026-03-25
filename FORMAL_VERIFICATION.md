@@ -6,7 +6,7 @@ We have successfully added **formal verification for ONNX operators** to RunNX u
 
 ## � Key Components Added
 
-### 1. **Why3 Specifications** (`formal/simple_specs.mlw`)
+### 1. **Why3 Specifications** (`formal/tensors.mlw`, `formal/operators.mlw`)
 - **Complete mathematical specifications** for all major ONNX operators:
   - Addition, Multiplication, Matrix Multiplication
   - ReLU, Sigmoid activation functions
@@ -59,7 +59,7 @@ We have successfully added **formal verification for ONNX operators** to RunNX u
 ## � Verification Capabilities
 
 ### **Theorem Proving with Why3**
-- Uses Alt-Ergo, CVC4, Z3 theorem provers
+- Uses Alt-Ergo, CVC5, Z3 theorem provers
 - Proves mathematical properties automatically
 - Verifies operator specifications against formal contracts
 - Ensures correctness of implementations
