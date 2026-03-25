@@ -36,6 +36,8 @@ env_logger = "0.11"
 tokio = { version = "1.0", features = ["full"], optional = true }
 rayon = { version = "1.10", optional = true }
 wide = "0.7"
+cblas = { version = "0.4", optional = true }
+blas-src = { version = "0.10", features = ["openblas"], optional = true }
 
 [build-dependencies]
 prost-build = "0.14.1"
@@ -56,6 +58,8 @@ imageproc = "0.25"
 default = []
 async = ["tokio"]
 parallel = ["rayon"]
+naive-conv = []            # Nested-loop Conv (educational reference; slowest)
+blas = ["dep:cblas", "dep:blas-src"]  # im2col + OpenBLAS sgemm (fastest; requires libopenblas-dev)
 formal-verification = []  # Enable formal verification checks and contracts
 
 [[bench]]
