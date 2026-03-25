@@ -11,6 +11,9 @@ use crate::{
 use std::collections::HashMap;
 use std::str::FromStr;
 
+#[cfg(all(feature = "blas", not(feature = "naive-conv")))]
+extern crate blas_src; // links the selected BLAS implementation
+
 /// Supported ONNX operators
 #[derive(Debug, Clone, PartialEq)]
 pub enum OperatorType {
@@ -332,17 +335,33 @@ fn matmul_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
     Ok(vec![result])
 }
 
-/// 2D Convolution operator implementation
+/// Dimensional parameters for the Conv operator, derived from inputs and attributes.
+struct ConvParams {
+    batch_size: usize,
+    channels_in: usize,
+    height_in: usize,
+    width_in: usize,
+    channels_out: usize,
+    kernel_h: usize,
+    kernel_w: usize,
+    stride_h: usize,
+    stride_w: usize,
+    pad_top: usize,
+    pad_left: usize,
+    height_out: usize,
+    width_out: usize,
+}
+
+/// 2D Convolution operator — dispatches to one of three back-ends:
 ///
-/// Performs a complete 2D convolution operation following ONNX specification.
-/// This implementation handles proper shape calculation and actual convolution computation.
+/// | Feature flag  | Back-end                        | Speed   |
+/// |---------------|---------------------------------|---------|
+/// | `naive-conv`  | 6-level nested loop             | slowest |
+/// | `blas`        | im2col + OpenBLAS `sgemm`       | fastest |
+/// | *(default)*   | im2col + ndarray `dot` (matrixmultiply) | fast |
 ///
-/// # Arguments
-/// * `inputs` - Array of 2-3 tensors: [input, kernel, bias (optional)]
-/// * `attrs` - Optional attributes for stride, padding, etc.
-///
-/// # Returns
-/// * Single output tensor with convolution result
+/// The `naive-conv` path is kept as a readable reference so readers can
+/// compare the algorithmic structure to the im2col transformation.
 fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Tensor>> {
     if inputs.len() < 2 {
         return Err(OnnxError::invalid_dimensions(format!(
@@ -447,13 +466,9 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
         "Conv: stride={stride_h}x{stride_w}, pad=[{pad_top},{pad_left},{pad_bottom},{pad_right}]"
     );
 
-    // Perform actual 2D convolution
-    let mut output_data = vec![0.0f32; output_shape.iter().product()];
-
     let input_data = input.data();
     let kernel_data = kernel.data();
 
-    // Use flat slice indexing to avoid per-element coordinate→index conversion
     let input_flat = input_data
         .as_slice_memory_order()
         .expect("Conv: input tensor must be contiguous");
@@ -461,66 +476,32 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
         .as_slice_memory_order()
         .expect("Conv: kernel tensor must be contiguous");
 
-    // Precompute strides for input [N, C_in, H_in, W_in]
-    let in_c_stride = height_in * width_in;
-    let in_n_stride = channels_in * in_c_stride;
+    let p = ConvParams {
+        batch_size,
+        channels_in,
+        height_in,
+        width_in,
+        channels_out,
+        kernel_h,
+        kernel_w,
+        stride_h,
+        stride_w,
+        pad_top,
+        pad_left,
+        height_out,
+        width_out,
+    };
 
-    // Precompute strides for kernel [C_out, C_in, K_h, K_w]
-    let k_kh_stride = kernel_w;
-    let k_cin_stride = kernel_h * k_kh_stride;
-    let k_cout_stride = channels_in * k_cin_stride;
+    // Dispatch to the selected back-end.
+    // Priority when multiple features are set: naive-conv > blas > im2col.
+    #[cfg(feature = "naive-conv")]
+    let mut output_data = conv_naive(&p, input_flat, kernel_flat);
 
-    // Stride values for navigating the output buffer
-    let output_channel_stride = height_out * width_out;
-    let output_batch_stride = channels_out * output_channel_stride;
+    #[cfg(all(feature = "blas", not(feature = "naive-conv")))]
+    let mut output_data = conv_blas(&p, input_flat, kernel_flat)?;
 
-    for n in 0..batch_size {
-        let output_batch_offset = n * output_batch_stride;
-        let in_n_offset = n * in_n_stride;
-
-        for c_out in 0..channels_out {
-            let output_channel_offset = output_batch_offset + c_out * output_channel_stride;
-            let k_cout_offset = c_out * k_cout_stride;
-
-            for h_out in 0..height_out {
-                for w_out in 0..width_out {
-                    let mut sum = 0.0f32;
-
-                    for c_in in 0..channels_in {
-                        let in_cin_offset = in_n_offset + c_in * in_c_stride;
-                        let k_cin_offset = k_cout_offset + c_in * k_cin_stride;
-
-                        for kh in 0..kernel_h {
-                            let h_in_padded = h_out * stride_h + kh;
-
-                            // Skip padding rows
-                            if h_in_padded < pad_top || h_in_padded >= height_in + pad_top {
-                                continue;
-                            }
-                            let h_in = h_in_padded - pad_top;
-                            let in_h_offset = in_cin_offset + h_in * width_in;
-                            let k_kh_offset = k_cin_offset + kh * k_kh_stride;
-
-                            for kw in 0..kernel_w {
-                                let w_in_padded = w_out * stride_w + kw;
-
-                                // Skip padding columns
-                                if w_in_padded < pad_left || w_in_padded >= width_in + pad_left {
-                                    continue;
-                                }
-                                let w_in = w_in_padded - pad_left;
-
-                                sum +=
-                                    input_flat[in_h_offset + w_in] * kernel_flat[k_kh_offset + kw];
-                            }
-                        }
-                    }
-
-                    output_data[output_channel_offset + h_out * width_out + w_out] = sum;
-                }
-            }
-        }
-    }
+    #[cfg(not(any(feature = "naive-conv", feature = "blas")))]
+    let mut output_data = conv_im2col(&p, input_flat, kernel_flat)?;
 
     log::debug!("Conv: computed {} output values", output_data.len());
 
@@ -555,13 +536,14 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
         if !supported_bias {
             log::warn!("Conv: unsupported bias shape {bias_shape:?}, skipping bias addition");
         } else {
+            let hw = height_out * width_out;
             // Add bias for every (batch, channel) slice — must cover all batches.
             for n in 0..batch_size {
-                let batch_offset = n * output_batch_stride;
+                let batch_offset = n * channels_out * hw;
                 for c_out in 0..channels_out {
                     let bias_val = get_bias_val(c_out);
-                    let start = batch_offset + c_out * output_channel_stride;
-                    let end = start + output_channel_stride;
+                    let start = batch_offset + c_out * hw;
+                    let end = start + hw;
                     for val in &mut output_data[start..end] {
                         *val += bias_val;
                     }
@@ -576,6 +558,314 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
 
     log::debug!("Conv: final output shape {:?}", final_output.shape());
     Ok(vec![final_output])
+}
+
+// ---------------------------------------------------------------------------
+// Conv back-end implementations
+// ---------------------------------------------------------------------------
+
+/// **Naive back-end** (`--features naive-conv`)
+///
+/// Direct 6-level nested loop over (N, C_out, H_out, W_out, C_in, Kh, Kw).
+/// Kept as a readable reference — every multiply-accumulate maps 1-to-1 to
+/// the mathematical definition of convolution.  Uses precomputed flat-slice
+/// strides so it avoids dynamic ndarray index lookups.
+#[cfg(feature = "naive-conv")]
+fn conv_naive(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Vec<f32> {
+    let &ConvParams {
+        batch_size,
+        channels_in,
+        height_in,
+        width_in,
+        channels_out,
+        kernel_h,
+        kernel_w,
+        stride_h,
+        stride_w,
+        pad_top,
+        pad_left,
+        height_out,
+        width_out,
+    } = p;
+
+    let in_c_stride = height_in * width_in;
+    let in_n_stride = channels_in * in_c_stride;
+    let k_kh_stride = kernel_w;
+    let k_cin_stride = kernel_h * k_kh_stride;
+    let k_cout_stride = channels_in * k_cin_stride;
+    let out_hw = height_out * width_out;
+    let out_c_stride = out_hw;
+    let out_n_stride = channels_out * out_hw;
+
+    let mut out = vec![0.0f32; batch_size * channels_out * height_out * width_out];
+
+    for n in 0..batch_size {
+        for c_out in 0..channels_out {
+            for h_out in 0..height_out {
+                for w_out in 0..width_out {
+                    let mut sum = 0.0f32;
+                    for c_in in 0..channels_in {
+                        for kh in 0..kernel_h {
+                            let h_in_padded = h_out * stride_h + kh;
+                            if h_in_padded < pad_top || h_in_padded >= height_in + pad_top {
+                                continue;
+                            }
+                            let h_in = h_in_padded - pad_top;
+                            for kw in 0..kernel_w {
+                                let w_in_padded = w_out * stride_w + kw;
+                                if w_in_padded < pad_left || w_in_padded >= width_in + pad_left {
+                                    continue;
+                                }
+                                let w_in = w_in_padded - pad_left;
+                                let i_idx =
+                                    n * in_n_stride + c_in * in_c_stride + h_in * width_in + w_in;
+                                let k_idx = c_out * k_cout_stride
+                                    + c_in * k_cin_stride
+                                    + kh * k_kh_stride
+                                    + kw;
+                                sum += input[i_idx] * kernel[k_idx];
+                            }
+                        }
+                    }
+                    out[n * out_n_stride + c_out * out_c_stride + h_out * width_out + w_out] = sum;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// **im2col back-end** (default, no extra features required)
+///
+/// # How im2col works
+///
+/// Instead of computing each output pixel with nested loops, we first
+/// *rearrange* the input into a 2-D matrix (the "column" matrix) where
+/// every row contains the flattened patch of input values that contribute
+/// to one output pixel.  The convolution then reduces to a single matrix
+/// multiply:
+///
+/// ```text
+/// col   [N·H_out·W_out,  C_in·Kh·Kw]   ← im2col(input)
+/// W     [C_out,          C_in·Kh·Kw]   ← kernel reshaped (no copy)
+///
+/// output = col @ W.T                    ← one GEMM call
+/// [N·H_out·W_out, C_out]  →  reshape → [N, C_out, H_out, W_out]
+/// ```
+///
+/// The GEMM is performed by ndarray's `dot`, which delegates to the
+/// `matrixmultiply` crate — a cache-blocking, SIMD-vectorised pure-Rust
+/// GEMM that is competitive with OpenBLAS on many workloads.
+#[cfg(not(any(feature = "naive-conv", feature = "blas")))]
+fn conv_im2col(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Result<Vec<f32>> {
+    use ndarray::Array2;
+
+    let &ConvParams {
+        batch_size,
+        channels_in,
+        height_in,
+        width_in,
+        channels_out,
+        kernel_h,
+        kernel_w,
+        stride_h,
+        stride_w,
+        pad_top,
+        pad_left,
+        height_out,
+        width_out,
+    } = p;
+
+    let patch_len = channels_in * kernel_h * kernel_w; // cols of col matrix
+    let n_patches = batch_size * height_out * width_out; // rows of col matrix
+
+    // ------------------------------------------------------------------
+    // Step 1: im2col — build the [n_patches, patch_len] column matrix.
+    // Each row collects the input values (with zero-padding) that a single
+    // output position (n, h_out, w_out) multiplies against the kernel.
+    // ------------------------------------------------------------------
+    let mut col = vec![0.0f32; n_patches * patch_len];
+    let in_c_stride = height_in * width_in;
+    let in_n_stride = channels_in * in_c_stride;
+
+    for n in 0..batch_size {
+        for h_out in 0..height_out {
+            for w_out in 0..width_out {
+                let row = n * height_out * width_out + h_out * width_out + w_out;
+                let row_base = row * patch_len;
+                let mut col_idx = 0;
+                for c_in in 0..channels_in {
+                    for kh in 0..kernel_h {
+                        let h_in_padded = h_out * stride_h + kh;
+                        for kw in 0..kernel_w {
+                            let w_in_padded = w_out * stride_w + kw;
+                            // Pixels that fall in the zero-padding stay 0.0 (pre-initialised).
+                            if h_in_padded >= pad_top
+                                && h_in_padded < height_in + pad_top
+                                && w_in_padded >= pad_left
+                                && w_in_padded < width_in + pad_left
+                            {
+                                let h_in = h_in_padded - pad_top;
+                                let w_in = w_in_padded - pad_left;
+                                col[row_base + col_idx] = input
+                                    [n * in_n_stride + c_in * in_c_stride + h_in * width_in + w_in];
+                            }
+                            col_idx += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Step 2: GEMM — output = col @ kernel.T
+    // col    : [n_patches, patch_len]
+    // kernel : [channels_out, patch_len]  (already flat, no copy needed)
+    // output : [n_patches, channels_out]
+    // ------------------------------------------------------------------
+    let col_mat = Array2::from_shape_vec((n_patches, patch_len), col)
+        .map_err(|e| OnnxError::invalid_dimensions(format!("im2col reshape failed: {e}")))?;
+    let w_mat = Array2::from_shape_vec((channels_out, patch_len), kernel.to_vec())
+        .map_err(|e| OnnxError::invalid_dimensions(format!("kernel reshape failed: {e}")))?;
+
+    let out_mat = col_mat.dot(&w_mat.t()); // [n_patches, channels_out]
+
+    // ------------------------------------------------------------------
+    // Step 3: reindex from [N·H·W, C_out]  →  [N, C_out, H, W] (NCHW).
+    // ------------------------------------------------------------------
+    let out_slice = out_mat
+        .as_slice()
+        .expect("matmul output should be contiguous");
+    let hw = height_out * width_out;
+    let mut output = vec![0.0f32; batch_size * channels_out * hw];
+    for n in 0..batch_size {
+        for h in 0..height_out {
+            for w in 0..width_out {
+                let row = n * hw + h * width_out + w;
+                for c_out in 0..channels_out {
+                    output[n * channels_out * hw + c_out * hw + h * width_out + w] =
+                        out_slice[row * channels_out + c_out];
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// **BLAS back-end** (`--features blas`)
+///
+/// Identical im2col transform as the default back-end, but the GEMM is
+/// performed by OpenBLAS `sgemm` instead of `matrixmultiply`.  On machines
+/// with a well-tuned BLAS (e.g. Intel MKL or OpenBLAS with AVX-512) this
+/// can be 2–4× faster than the pure-Rust path.
+///
+/// # System requirements
+/// ```bash
+/// # Ubuntu / Debian / WSL2
+/// sudo apt install libopenblas-dev
+/// cargo build --features blas
+/// ```
+#[cfg(all(feature = "blas", not(feature = "naive-conv")))]
+fn conv_blas(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Result<Vec<f32>> {
+    let &ConvParams {
+        batch_size,
+        channels_in,
+        height_in,
+        width_in,
+        channels_out,
+        kernel_h,
+        kernel_w,
+        stride_h,
+        stride_w,
+        pad_top,
+        pad_left,
+        height_out,
+        width_out,
+    } = p;
+
+    let patch_len = channels_in * kernel_h * kernel_w;
+    let n_patches = batch_size * height_out * width_out;
+    let hw = height_out * width_out;
+
+    // Step 1: im2col (same as the default back-end).
+    let mut col = vec![0.0f32; n_patches * patch_len];
+    let in_c_stride = height_in * width_in;
+    let in_n_stride = channels_in * in_c_stride;
+
+    for n in 0..batch_size {
+        for h_out in 0..height_out {
+            for w_out in 0..width_out {
+                let row = n * hw + h_out * width_out + w_out;
+                let row_base = row * patch_len;
+                let mut col_idx = 0;
+                for c_in in 0..channels_in {
+                    for kh in 0..kernel_h {
+                        let h_in_padded = h_out * stride_h + kh;
+                        for kw in 0..kernel_w {
+                            let w_in_padded = w_out * stride_w + kw;
+                            if h_in_padded >= pad_top
+                                && h_in_padded < height_in + pad_top
+                                && w_in_padded >= pad_left
+                                && w_in_padded < width_in + pad_left
+                            {
+                                let h_in = h_in_padded - pad_top;
+                                let w_in = w_in_padded - pad_left;
+                                col[row_base + col_idx] = input
+                                    [n * in_n_stride + c_in * in_c_stride + h_in * width_in + w_in];
+                            }
+                            col_idx += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 2: GEMM via OpenBLAS sgemm.
+    //
+    // We compute: output = col @ kernel.T
+    //   col    [m=n_patches, k=patch_len]   (row-major, no transpose)
+    //   kernel [n=channels_out, k=patch_len] (row-major, transposed in GEMM)
+    //   output [m, n]
+    let m = n_patches as i32;
+    let n = channels_out as i32;
+    let k = patch_len as i32;
+    let mut out_flat = vec![0.0f32; n_patches * channels_out];
+
+    unsafe {
+        cblas::sgemm(
+            cblas::Layout::RowMajor,
+            cblas::Transpose::None,     // col: no transpose
+            cblas::Transpose::Ordinary, // kernel: transpose
+            m,
+            n,
+            k,
+            1.0f32, // alpha
+            &col,
+            k, // A = col,    lda = k
+            kernel,
+            k,      // B = kernel, ldb = k (before transpose)
+            0.0f32, // beta
+            &mut out_flat,
+            n, // C = output, ldc = n
+        );
+    }
+
+    // Step 3: reindex [N·H·W, C_out] → [N, C_out, H, W].
+    let mut output = vec![0.0f32; batch_size * channels_out * hw];
+    for n in 0..batch_size {
+        for h in 0..height_out {
+            for w in 0..width_out {
+                let row = n * hw + h * width_out + w;
+                for c_out in 0..channels_out {
+                    output[n * channels_out * hw + c_out * hw + h * width_out + w] =
+                        out_flat[row * channels_out + c_out];
+                }
+            }
+        }
+    }
+    Ok(output)
 }
 
 /// ReLU operator implementation
