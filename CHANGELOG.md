@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [unreleased]
 
+### Bug Fixes
+
+- Improve safety, error handling, and numerical stability
+- Harden tensor ops, graph validation, and formal specs
+- Disable blas feature on Windows CI and link against system OpenBLAS
+
+### Documentation
+
+- Fix stale references and bump version to 0.2.1
+- Add Creusot integration to roadmap
+- Document Conv backends, feature flags, and ignore *.pt model files
+
+### Features
+
+- Add logistic regression example
+
+### Miscellaneous Tasks
+
+- Pin image dependency to 0.25.5 for MSRV 1.85 compatibility
+- Bump version to 0.3.0
+
+### Performance
+
+- Wrap tensor data in Arc and add parallel wave execution
+- Add parallel wave execution via rayon
+- Add SIMD-accelerated unary ops via wide crate
+- Add im2col conv back-end and optional BLAS feature
+
+### Testing
+
+- Improve operators.rs coverage
+- Fix weak assertions in operators_coverage_tests
+
+## [unreleased]
+
 ## [Unreleased]
 
 ## [0.3.0] - 2026-03-25
