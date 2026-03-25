@@ -227,16 +227,14 @@ fn test_unsqueeze_op_duplicate_axes() {
 }
 
 #[test]
-fn test_unsqueeze_op_empty_axes_returns_clone() {
-    // If axes attribute is empty, should return the input unchanged
+fn test_unsqueeze_op_empty_axes_attr() {
+    // Empty axes string: split(',') on "" gives [""] → parse as i64 with unwrap_or(0) → [0]
+    // so this unsqueezes at axis 0: [3] → [1, 3]
     let tensor = Tensor::from_shape_vec(&[3], vec![1., 2., 3.]).unwrap();
     let mut attrs = HashMap::new();
-    attrs.insert("axes".to_string(), "".to_string()); // empty → parsed as empty vec
-                                                      // If this returns Ok, the shape should be unchanged
-                                                      // (empty axes attr parses differently depending on implementation)
-                                                      // The split("") on empty gives [""] which parses to [0], so test it returns ok
-    let _result = execute_operator(&OperatorType::Unsqueeze, &[tensor], &attrs);
-    // Just ensure no panic
+    attrs.insert("axes".to_string(), "".to_string());
+    let result = execute_operator(&OperatorType::Unsqueeze, &[tensor], &attrs).unwrap();
+    assert_eq!(result[0].shape(), &[1, 3]);
 }
 
 #[test]
@@ -378,6 +376,7 @@ fn test_batch_norm_op_mismatched_param_shapes() {
 
 #[test]
 fn test_batch_norm_op_custom_epsilon() {
+    // input=1, mean=1, var=0.1, epsilon=1e-3 → (1-1)/sqrt(0.1+1e-3)*2 + 0.5 = 0.5
     let input = Tensor::from_shape_vec(&[1, 2, 2, 2], vec![1.0; 8]).unwrap();
     let scale = Tensor::from_shape_vec(&[2], vec![2.0, 2.0]).unwrap();
     let bias = Tensor::from_shape_vec(&[2], vec![0.5, 0.5]).unwrap();
@@ -389,8 +388,11 @@ fn test_batch_norm_op_custom_epsilon() {
         &OperatorType::BatchNormalization,
         &[input, scale, bias, mean, variance],
         &attrs,
-    );
-    assert!(result.is_ok());
+    )
+    .unwrap();
+    assert_eq!(result[0].shape(), &[1, 2, 2, 2]);
+    // normalized = (1.0 - 1.0) / sqrt(0.1 + 0.001) = 0 → output = 2.0 * 0 + 0.5 = 0.5
+    assert!(result[0].data().iter().all(|&v| (v - 0.5).abs() < 1e-5));
 }
 
 // ============================================================
