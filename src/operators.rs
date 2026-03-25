@@ -157,7 +157,7 @@ pub fn execute_operator(
 /// # Returns
 /// * Single output tensor with element-wise sum
 ///
-/// # Formal Specifications (verified with Why3)
+/// # Formal Specifications (specified in `formal/operators.mlw`)
 /// - **Preconditions**:
 ///   - `inputs.len() == 2`
 ///   - `inputs[0].shape() == inputs[1].shape()` (or broadcastable)
@@ -212,7 +212,7 @@ fn add_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 /// # Returns
 /// * Single output tensor with element-wise product
 ///
-/// # Formal Specifications (verified with Why3)
+/// # Formal Specifications (specified in `formal/operators.mlw`)
 /// - **Preconditions**:
 ///   - `inputs.len() == 2`
 ///   - `inputs[0].shape() == inputs[1].shape()` (or broadcastable)
@@ -267,7 +267,7 @@ fn mul_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 /// # Returns
 /// * Single output tensor with matrix product
 ///
-/// # Formal Specifications (verified with Why3)
+/// # Formal Specifications (specified in `formal/operators.mlw`)
 /// - **Preconditions**:
 ///   - `inputs.len() == 2`
 ///   - `inputs[0].ndim() == 2 && inputs[1].ndim() == 2`
@@ -447,135 +447,98 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
         "Conv: stride={stride_h}x{stride_w}, pad=[{pad_top},{pad_left},{pad_bottom},{pad_right}]"
     );
 
-    // Perform actual 2D convolution - HIGHLY OPTIMIZED
-    let mut output_data = vec![0.0; output_shape.iter().product()];
+    // Perform actual 2D convolution
+    let mut output_data = vec![0.0f32; output_shape.iter().product()];
 
-    // Pre-extract slices for efficiency
-    let input_slice = input.data().as_slice().unwrap();
-    let kernel_slice = kernel.data().as_slice().unwrap();
+    let input_data = input.data();
+    let kernel_data = kernel.data();
 
-    // Pre-calculate ALL stride values for maximum efficiency
-    let input_channel_stride = height_in * width_in;
-    let input_batch_stride = channels_in * input_channel_stride;
-    let kernel_output_stride = channels_in * kernel_h * kernel_w;
-    let kernel_input_stride = kernel_h * kernel_w;
+    // Stride values for navigating the output buffer
     let output_channel_stride = height_out * width_out;
     let output_batch_stride = channels_out * output_channel_stride;
 
-    // Pre-compute valid kernel windows to avoid bounds checking in inner loop
-    let mut valid_windows = Vec::new();
-    for kh in 0..kernel_h {
-        for kw in 0..kernel_w {
-            valid_windows.push((kh, kw));
-        }
-    }
-
-    // OPTIMIZED: Reorder loops for better cache locality (batch -> output_channel -> spatial)
     for n in 0..batch_size {
-        let input_batch_offset = n * input_batch_stride;
         let output_batch_offset = n * output_batch_stride;
 
         for c_out in 0..channels_out {
-            let kernel_output_offset = c_out * kernel_output_stride;
             let output_channel_offset = output_batch_offset + c_out * output_channel_stride;
 
-            // OPTIMIZED: Process entire spatial output in one go
-            for spatial_idx in 0..output_channel_stride {
-                let h_out = spatial_idx / width_out;
-                let w_out = spatial_idx % width_out;
+            for h_out in 0..height_out {
+                for w_out in 0..width_out {
+                    let mut sum = 0.0f32;
 
-                let mut sum = 0.0f32;
+                    for c_in in 0..channels_in {
+                        for kh in 0..kernel_h {
+                            for kw in 0..kernel_w {
+                                let h_in_padded = h_out * stride_h + kh;
+                                let w_in_padded = w_out * stride_w + kw;
 
-                // OPTIMIZED: Unroll input channel loop for better vectorization
-                for c_in in 0..channels_in {
-                    let input_channel_offset = input_batch_offset + c_in * input_channel_stride;
-                    let kernel_input_offset = kernel_output_offset + c_in * kernel_input_stride;
-
-                    // OPTIMIZED: Use pre-computed valid windows and minimize bounds checks
-                    for &(kh, kw) in &valid_windows {
-                        // Calculate input coordinates with stride
-                        let h_in_padded = h_out * stride_h + kh;
-                        let w_in_padded = w_out * stride_w + kw;
-
-                        // OPTIMIZED: Single bounds check per kernel position
-                        if h_in_padded >= pad_top
-                            && h_in_padded < height_in + pad_top
-                            && w_in_padded >= pad_left
-                            && w_in_padded < width_in + pad_left
-                        {
-                            let h_in = h_in_padded - pad_top;
-                            let w_in = w_in_padded - pad_left;
-
-                            // OPTIMIZED: Direct indexing without additional bounds check
-                            if h_in < height_in && w_in < width_in {
-                                // SAFETY: We've explicitly checked that:
-                                // - h_in < height_in and w_in < width_in (bounds check above)
-                                // - input_channel_offset is valid (computed from validated c_in)
-                                // - The total index is within input_slice bounds
-                                let input_val = unsafe {
-                                    *input_slice.get_unchecked(
-                                        input_channel_offset + h_in * width_in + w_in,
-                                    )
-                                };
-                                // SAFETY: We've checked that:
-                                // - kh and kw are from valid_windows (within kernel bounds)
-                                // - kernel_input_offset is valid (from validated c_in and c_out)
-                                let kernel_val = unsafe {
-                                    *kernel_slice
-                                        .get_unchecked(kernel_input_offset + kh * kernel_w + kw)
-                                };
-                                sum += input_val * kernel_val;
+                                // Skip padding regions
+                                if h_in_padded >= pad_top
+                                    && h_in_padded < height_in + pad_top
+                                    && w_in_padded >= pad_left
+                                    && w_in_padded < width_in + pad_left
+                                {
+                                    let h_in = h_in_padded - pad_top;
+                                    let w_in = w_in_padded - pad_left;
+                                    sum += input_data[[n, c_in, h_in, w_in]]
+                                        * kernel_data[[c_out, c_in, kh, kw]];
+                                }
                             }
                         }
                     }
-                }
 
-                output_data[output_channel_offset + spatial_idx] = sum;
+                    output_data[output_channel_offset + h_out * width_out + w_out] = sum;
+                }
             }
         }
     }
 
     log::debug!("Conv: computed {} output values", output_data.len());
 
-    // Apply bias if present - HIGHLY OPTIMIZED
+    // Apply bias if present
     let final_output = if let Some(bias) = bias {
         let bias_shape = bias.shape();
-        let bias_slice = bias.data().as_slice().unwrap();
-
         log::debug!("Conv: applying bias with shape {bias_shape:?}");
 
-        // OPTIMIZED: In-place bias addition with SIMD-friendly operations
-        if bias_shape == [channels_out] {
-            // Standard case: bias is 1D with one value per output channel
-            for (c_out, &bias_val) in bias_slice.iter().enumerate().take(channels_out) {
-                let start_idx = c_out * output_channel_stride;
-                let end_idx = start_idx + output_channel_stride;
-
-                // OPTIMIZED: Vectorized addition for the entire channel at once
-                for i in start_idx..end_idx {
-                    unsafe {
-                        *output_data.get_unchecked_mut(i) += bias_val;
-                    }
-                }
+        let bias_data = bias.data();
+        let get_bias_val = |c_out: usize| -> f32 {
+            if bias_shape == [channels_out] {
+                bias_data[c_out]
+            } else if bias_shape.len() == 4
+                && bias_shape[0] == 1
+                && bias_shape[1] == channels_out
+                && bias_shape[2] == 1
+                && bias_shape[3] == 1
+            {
+                bias_data[[0, c_out, 0, 0]]
+            } else {
+                0.0 // unsupported shape; logged below
             }
-        } else if bias_shape.len() == 4 && bias_shape[0] == 1 && bias_shape[1] == channels_out {
-            // 4D bias case: [1, C_out, 1, 1] - same optimization
-            for (c_out, &bias_val) in bias_slice.iter().enumerate().take(channels_out) {
-                let start_idx = c_out * output_channel_stride;
-                let end_idx = start_idx + output_channel_stride;
+        };
 
-                for i in start_idx..end_idx {
-                    // SAFETY: Same as above - bounds are guaranteed by construction
-                    // - bias_shape validated to be [1, channels_out, 1, 1]
-                    // - c_out < channels_out (from take(channels_out))
-                    // - i < end_idx <= output_data.len()
-                    unsafe {
-                        *output_data.get_unchecked_mut(i) += bias_val;
-                    }
-                }
-            }
-        } else {
+        let supported_bias = bias_shape == [channels_out]
+            || (bias_shape.len() == 4
+                && bias_shape[0] == 1
+                && bias_shape[1] == channels_out
+                && bias_shape[2] == 1
+                && bias_shape[3] == 1);
+
+        if !supported_bias {
             log::warn!("Conv: unsupported bias shape {bias_shape:?}, skipping bias addition");
+        } else {
+            // Add bias for every (batch, channel) slice — must cover all batches.
+            for n in 0..batch_size {
+                let batch_offset = n * output_batch_stride;
+                for c_out in 0..channels_out {
+                    let bias_val = get_bias_val(c_out);
+                    let start = batch_offset + c_out * output_channel_stride;
+                    let end = start + output_channel_stride;
+                    for val in &mut output_data[start..end] {
+                        *val += bias_val;
+                    }
+                }
+            }
         }
 
         Tensor::from_shape_vec(&output_shape, output_data)?
@@ -597,7 +560,7 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
 /// # Returns
 /// * Single output tensor with ReLU applied element-wise
 ///
-/// # Formal Specifications (verified with Why3)
+/// # Formal Specifications (specified in `formal/operators.mlw`)
 /// - **Preconditions**:
 ///   - `inputs.len() == 1`
 /// - **Postconditions**:
@@ -659,7 +622,7 @@ fn relu_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 /// # Returns
 /// * Single output tensor with Sigmoid applied element-wise
 ///
-/// # Formal Specifications (verified with Why3)
+/// # Formal Specifications (specified in `formal/operators.mlw`)
 /// - **Preconditions**:
 ///   - `inputs.len() == 1`
 /// - **Postconditions**:

@@ -154,6 +154,15 @@ impl Graph {
     }
 
     /// Validate the graph structure
+    ///
+    /// Checks for:
+    /// - Duplicate node names
+    /// - References to tensors not produced by any node or input/initializer
+    /// - Invalid operator types
+    /// - Graph outputs that are never produced
+    ///
+    /// Node ordering does not matter here; cycle detection is handled separately
+    /// by [`Graph::topological_sort`].
     pub fn validate(&self) -> Result<()> {
         // Check for duplicate node names
         let mut node_names = std::collections::HashSet::new();
@@ -166,24 +175,28 @@ impl Graph {
             }
         }
 
-        // Check that all node inputs/outputs are valid tensor names
-        let mut available_tensors = std::collections::HashSet::new();
+        // Build the full set of tensors that are available anywhere in the graph:
+        // graph inputs, initializers, and every node output.  We do this in one
+        // pass so that validation is independent of the node listing order.
+        let mut available_tensors: std::collections::HashSet<&str> =
+            std::collections::HashSet::new();
 
-        // Add input tensors
         for input in &self.inputs {
             available_tensors.insert(&input.name);
         }
-
-        // Add initializer tensors
         for name in self.initializers.keys() {
             available_tensors.insert(name);
         }
-
-        // Process nodes in order
         for node in &self.nodes {
-            // Check that all inputs are available
+            for output_name in &node.outputs {
+                available_tensors.insert(output_name);
+            }
+        }
+
+        // Now check each node's inputs and operator type
+        for node in &self.nodes {
             for input_name in &node.inputs {
-                if !available_tensors.contains(input_name) {
+                if !available_tensors.contains(input_name.as_str()) {
                     return Err(OnnxError::graph_validation_error(format!(
                         "Node '{}' references unknown input tensor '{}'",
                         node.name, input_name
@@ -191,12 +204,6 @@ impl Graph {
                 }
             }
 
-            // Add outputs to available tensors
-            for output_name in &node.outputs {
-                available_tensors.insert(output_name);
-            }
-
-            // Validate operator type
             node.get_operator_type().map_err(|e| {
                 OnnxError::graph_validation_error(format!(
                     "Node '{}' has invalid operator type '{}': {}",
@@ -205,9 +212,9 @@ impl Graph {
             })?;
         }
 
-        // Check that all outputs are available
+        // Check that all declared graph outputs are reachable
         for output in &self.outputs {
-            if !available_tensors.contains(&output.name) {
+            if !available_tensors.contains(output.name.as_str()) {
                 return Err(OnnxError::graph_validation_error(format!(
                     "Graph output '{}' is not produced by any node",
                     output.name

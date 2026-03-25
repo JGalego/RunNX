@@ -41,34 +41,49 @@ theory TensorTypes
   }
   
   (*
-    TENSOR SIZE COMPUTATION
-    
-    For now, we'll use a simplified approach that works with Why3.
-    We assume the data array length directly represents the tensor size,
-    which should match the product of shape dimensions.
-    
-    A more complete implementation would compute the actual product,
-    but this requires more advanced Why3 features.
+    SHAPE PRODUCT COMPUTATION
+
+    Computes the total number of elements implied by a shape array, i.e. the
+    product of all dimension sizes.  Defined recursively over the prefix length
+    so that Why3 can reason about it by induction.
+
+    shape_product s n  =  s[0] * s[1] * ... * s[n-1]
   *)
-  function tensor_size (t: tensor) : int = Array.length t.data
+  function shape_product (s: shape) (n: int) : int
+
+  axiom shape_product_base:
+    forall s: shape. shape_product s 0 = 1
+
+  axiom shape_product_step:
+    forall s: shape, n: int. n > 0 ->
+      shape_product s n = shape_product s (n - 1) * s[n - 1]
+
+  (*
+    TENSOR SIZE
+
+    The canonical number of elements in a tensor is the product of its shape
+    dimensions.  This is the value that must equal Array.length t.data for the
+    tensor to be well-formed.
+  *)
+  function tensor_size (t: tensor) : int =
+    shape_product t.shape (Array.length t.shape)
 
   (*
     TENSOR VALIDITY PREDICATE
-    
+
     Ensures a tensor is well-formed by checking:
-    1. All dimensions are positive (cannot have zero or negative dimensions)
-    2. Shape has at least one dimension (scalars are 1D with shape [1])
-    3. Data array length matches the computed size from shape
-    
-    This prevents malformed tensors that could cause undefined behavior.
-    Note: We now compute the expected size from the shape, eliminating
-    the possibility of size/shape inconsistency.
+    1. Shape has at least one dimension (scalars use shape [1]).
+    2. All dimension sizes are strictly positive.
+    3. The data array length equals the product of all dimension sizes.
+
+    This makes the size/shape relationship non-trivial and prevents malformed
+    tensors that could cause undefined behaviour.
   *)
   predicate valid_tensor (t: tensor) =
     Array.length t.shape >= 1 /\                               (* At least one dimension *)
     (forall i: int. 0 <= i < Array.length t.shape ->          (* All dimensions positive *)
       t.shape[i] > 0) /\
-    Array.length t.data = tensor_size t                        (* Data size matches computed size *)
+    Array.length t.data = tensor_size t                        (* Data length = shape product *)
 
   (*
     SHAPE COMPARISON PREDICATE
@@ -99,10 +114,33 @@ theory TensorTypes
              [2, 3] + [1] ✓ (scalar broadcasts)
              [1] + [2, 3] ✓ (scalar broadcasts)
              
-    Note: We now use tensor_size function instead of accessing a size field.
   *)
   predicate broadcastable (t1 t2: tensor) =
     same_shape t1 t2 \/                        (* Either same shape *)
     tensor_size t1 = 1 \/                      (* Or first tensor is scalar *)
     tensor_size t2 = 1                         (* Or second tensor is scalar *)
+
+  (*
+    SHAPE EQUIVALENCE LEMMAS
+
+    same_shape is an equivalence relation on tensors.
+  *)
+  lemma same_shape_refl:
+    forall t: tensor. same_shape t t
+
+  lemma same_shape_sym:
+    forall t1 t2: tensor. same_shape t1 t2 -> same_shape t2 t1
+
+  lemma same_shape_trans:
+    forall t1 t2 t3: tensor.
+      same_shape t1 t2 -> same_shape t2 t3 -> same_shape t1 t3
+
+  (*
+    SHAPE PRODUCT BASE CASE
+
+    The empty product equals 1, so tensor_size is always at least 1
+    when dimensions are positive.  Stated for n = 0 directly from the axiom.
+  *)
+  lemma shape_product_zero:
+    forall s: shape. shape_product s 0 = 1
 end

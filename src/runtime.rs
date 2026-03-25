@@ -294,9 +294,16 @@ impl ExecutionContext {
         }
     }
 
-    /// Add a tensor to the context
+    /// Add a tensor to the context, replacing any existing tensor with the same name.
+    ///
+    /// Memory usage tracking accounts for both the old (freed) and new (allocated)
+    /// tensor so that overwrites do not inflate the reported total.
     pub fn add_tensor(&mut self, name: String, tensor: Tensor) {
-        // Update memory usage estimate
+        // Subtract the memory of any tensor being replaced
+        if let Some(existing) = self.tensors.get(&name) {
+            let freed = existing.len() * std::mem::size_of::<f32>();
+            self.stats.memory_usage_bytes = self.stats.memory_usage_bytes.saturating_sub(freed);
+        }
         self.stats.memory_usage_bytes += tensor.len() * std::mem::size_of::<f32>();
         self.tensors.insert(name, tensor);
     }

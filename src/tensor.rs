@@ -308,9 +308,17 @@ impl Tensor {
     }
 
     /// Element-wise division
+    ///
+    /// Returns an error if any element of `other` (after broadcasting) is zero.
     pub fn div(&self, other: &Tensor) -> Result<Tensor> {
         // Handle broadcasting following ONNX/NumPy rules
         let (left, right) = self.broadcast_tensors(other)?;
+
+        if right.data.iter().any(|&x| x == 0.0) {
+            return Err(OnnxError::invalid_dimensions(
+                "Division by zero: denominator tensor contains zero values".to_string(),
+            ));
+        }
 
         Ok(Tensor {
             data: &left.data / &right.data,
@@ -335,21 +343,30 @@ impl Tensor {
     }
 
     /// Element-wise square root
+    ///
+    /// Returns an error if any input element is negative, since the square root
+    /// of a negative number is not a real number.
     pub fn sqrt(&self) -> Result<Tensor> {
+        if self.data.iter().any(|&x| x < 0.0) {
+            return Err(OnnxError::invalid_dimensions(
+                "Square root requires non-negative input values".to_string(),
+            ));
+        }
         Ok(Tensor {
             data: self.data.mapv(|x| x.sqrt()),
         })
     }
 
-    /// Element-wise power
+    /// Element-wise power with broadcasting
+    ///
+    /// Raises each element of `self` to the power of the corresponding element
+    /// in `other`, following ONNX/NumPy broadcasting rules.
     pub fn pow(&self, other: &Tensor) -> Result<Tensor> {
-        if self.shape() != other.shape() {
-            return Err(OnnxError::shape_mismatch(self.shape(), other.shape()));
-        }
+        let (left, right) = self.broadcast_tensors(other)?;
 
         Ok(Tensor {
-            data: ndarray::Zip::from(&self.data)
-                .and(&other.data)
+            data: ndarray::Zip::from(&left.data)
+                .and(&right.data)
                 .map_collect(|&a, &b| a.powf(b)),
         })
     }
@@ -708,20 +725,31 @@ impl Tensor {
 
     /// Applies the Softmax activation function along the last axis
     ///
-    /// The Softmax function is defined as: softmax(x_i) = exp(x_i) / sum(exp(x_j))
-    /// This implementation applies softmax along the last axis of the tensor.
+    /// The Softmax function is defined as: `softmax(x_i) = exp(x_i) / Σ exp(x_j)`
+    /// where the sum runs over the last axis only. Each independent slice along
+    /// the last dimension is normalised to a probability distribution that sums
+    /// to 1.0.
+    ///
+    /// Uses the numerically stable formulation `softmax(x) = softmax(x - max(x))`
+    /// to prevent floating-point overflow.
     ///
     /// # Examples
     ///
     /// ```
     /// use runnx::Tensor;
-    /// use ndarray::Array1;
+    /// use ndarray::Array2;
     ///
-    /// let tensor = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0]));
+    /// // Each row is an independent probability distribution
+    /// let tensor = Tensor::from_shape_vec(&[2, 3], vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0]).unwrap();
     /// let result = tensor.softmax().unwrap();
-    /// // Sum of softmax outputs should be 1.0
-    /// let sum: f32 = result.data().iter().sum();
-    /// assert!((sum - 1.0).abs() < 1e-6);
+    /// assert_eq!(result.shape(), &[2, 3]);
+    ///
+    /// // Each row must sum to 1.0, not the global sum
+    /// let data = result.data();
+    /// let row0_sum: f32 = (0..3).map(|j| data[[0, j]]).sum();
+    /// let row1_sum: f32 = (0..3).map(|j| data[[1, j]]).sum();
+    /// assert!((row0_sum - 1.0).abs() < 1e-6);
+    /// assert!((row1_sum - 1.0).abs() < 1e-6);
     /// ```
     pub fn softmax(&self) -> Result<Tensor> {
         if self.is_empty() {
@@ -730,20 +758,26 @@ impl Tensor {
             ));
         }
 
-        // For simplicity, apply softmax to the flattened tensor
-        // A full implementation would handle arbitrary axes
-        let max_val = self.data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let exp_data = self.data.mapv(|x| (x - max_val).exp());
-        let sum_exp = exp_data.sum();
+        let ndim = self.ndim();
+        let last_axis = ndarray::Axis(ndim - 1);
 
-        if sum_exp == 0.0 {
-            return Err(OnnxError::invalid_dimensions(
-                "Softmax sum is zero, cannot normalize".to_string(),
-            ));
+        // Clone to get an owned, contiguous array we can mutate lane by lane.
+        let mut result = self.data.to_owned();
+
+        for mut lane in result.lanes_mut(last_axis) {
+            // Numerically stable: subtract max before exp.
+            let max_val = lane.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            lane.mapv_inplace(|x| (x - max_val).exp());
+            let sum_exp: f32 = lane.iter().sum();
+            if !sum_exp.is_finite() || sum_exp == 0.0 {
+                return Err(OnnxError::invalid_dimensions(
+                    "Softmax denominator is zero or non-finite".to_string(),
+                ));
+            }
+            lane.mapv_inplace(|x| x / sum_exp);
         }
 
-        let softmax_data = exp_data.mapv(|x| x / sum_exp);
-        Ok(Tensor { data: softmax_data })
+        Ok(Tensor { data: result })
     }
 
     /// Concatenate tensors along a specified axis
