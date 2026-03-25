@@ -25,6 +25,7 @@ Thumbs.db
 /test-results/
 simple_model.json
 *.onnx
+*.pt
 
 # Benchmarks
 /benches/target/
