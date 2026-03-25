@@ -363,7 +363,7 @@ For explicit control, use:
 | `Add`         | ✅      | Element-wise addition        |
 | `Mul`         | ✅      | Element-wise multiplication  |
 | `MatMul`      | ✅      | Matrix multiplication        |
-| `Conv`        | ✅      | 2D Convolution               |
+| `Conv`        | ✅      | 2D Convolution (naive / im2col / BLAS - see [Conv Back-ends](#conv-back-ends)) |
 | `Relu`        | ✅      | Rectified Linear Unit        |
 | `Sigmoid`     | ✅      | Sigmoid activation           |
 | `Reshape`     | ✅      | Tensor reshaping             |
@@ -687,6 +687,52 @@ Example benchmark results:
 - Basic operations: ~10-50 µs
 - Small model inference: ~100-500 µs
 - Medium model inference: ~1-10 ms
+
+### Feature Flags
+
+RunNX ships several opt-in performance features:
+
+| Feature | What it does | How to enable |
+|---|---|---|
+| `parallel` | Executes independent graph nodes concurrently using Rayon | `--features parallel` |
+| `blas` | Replaces the default Conv GEMM with OpenBLAS `sgemm` | `--features blas` ¹ |
+| `naive-conv` | Reverts Conv to the reference nested-loop implementation | `--features naive-conv` |
+
+¹ Requires `libopenblas-dev` (or equivalent) installed on the system.
+
+```bash
+# Ubuntu / Debian / WSL2
+sudo apt install libopenblas-dev
+cargo build --features blas
+
+# Combine features freely
+cargo build --features "parallel,blas"
+```
+
+### Conv Backends
+
+Convolution dominates runtime for CNN-based models (e.g. YOLOv8).
+RunNX provides three interchangeable backends selected at compile time:
+
+```
+┌───────────────┬──────────────────────────────────────┬─────────┐
+│ Feature flag  │ Backend                              │ Speed   │
+├───────────────┼──────────────────────────────────────┼─────────┤
+│ naive-conv    │ 6-level nested loop                  │ slowest │
+│ default       │ im2col + matrixmultiply (pure Rust)  │ fast    │
+│ blas          │ im2col + OpenBLAS sgemm              │ fastest │
+└───────────────┴──────────────────────────────────────┴─────────┘
+```
+
+**Why three options?**
+
+- **`naive-conv`** preserves the direct mathematical definition of convolution - every multiply-accumulate maps 1-to-1 to the formula. Use it to understand the algorithm or as a correctness baseline.
+
+- **`im2col`(default)** rearranges input patches into a matrix so the entire convolution reduces to one GEMM call.  The GEMM is handled by the [`matrixmultiply`](https://crates.io/crates/matrixmultiply) crate - a cache-blocking, SIMD-vectorised pure-Rust implementation that requires no system libraries and is competitive with OpenBLAS on many workloads.  This is the recommended option for most users.
+
+- **`blas`** keeps the same im2col transform but delegates the GEMM to OpenBLAS `sgemm`.  On machines with a well-tuned BLAS (Intel MKL, OpenBLAS with AVX-512, etc.) this can be 2–4× faster than the pure-Rust path. The trade-off is an external system dependency.
+
+> **Note on performance**: RunNX is an educational runtime. Even with `blas` enabled it will not match a production inference engine (ONNX Runtime, TensorRT) for the full model, because those apply graph-level optimisations (operator fusion, layout planning, kernel auto-tuning) that are outside the scope of this project. Conv throughput should be broadly comparable; the gap comes from everything else.
 
 ## Formal Verification
 
