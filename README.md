@@ -920,6 +920,7 @@ This project is licensed under
 - [ ] **Language Bindings**: Python and JavaScript bindings
 - [ ] **Enterprise Features**: Model serving and distributed inference
 - [ ] **Advanced Visualization**: Interactive model exploration tools
+- [ ] **Creusot Integration**: Deductive verification of Rust implementation via [Creusot](https://github.com/creusot-rs/creusot), closing the gap between the existing Why3 specs and the actual code (starting with `ndarray`-free subsystems such as shape/broadcasting logic)
 
 ## Documentation
 
