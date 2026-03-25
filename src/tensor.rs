@@ -7,6 +7,7 @@ use crate::error::{OnnxError, Result};
 use ndarray::{ArrayBase, ArrayD, Data, Dimension, IxDyn};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::sync::Arc;
 
 /// A multi-dimensional tensor for neural network computations
 ///
@@ -14,7 +15,7 @@ use std::fmt;
 /// additional functionality specific to ONNX operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tensor {
-    data: ArrayD<f32>,
+    data: Arc<ArrayD<f32>>,
 }
 
 impl Tensor {
@@ -36,7 +37,7 @@ impl Tensor {
         D: Dimension,
     {
         Self {
-            data: array.to_owned().into_dyn(),
+            data: Arc::new(array.to_owned().into_dyn()),
         }
     }
 
@@ -53,7 +54,7 @@ impl Tensor {
     /// ```
     pub fn zeros(shape: &[usize]) -> Self {
         Self {
-            data: ArrayD::zeros(IxDyn(shape)),
+            data: Arc::new(ArrayD::zeros(IxDyn(shape))),
         }
     }
 
@@ -70,7 +71,7 @@ impl Tensor {
     /// ```
     pub fn ones(shape: &[usize]) -> Self {
         Self {
-            data: ArrayD::ones(IxDyn(shape)),
+            data: Arc::new(ArrayD::ones(IxDyn(shape))),
         }
     }
 
@@ -88,7 +89,9 @@ impl Tensor {
     pub fn from_shape_vec(shape: &[usize], data: Vec<f32>) -> Result<Self> {
         let array = ArrayD::from_shape_vec(IxDyn(shape), data)
             .map_err(|e| OnnxError::invalid_dimensions(e.to_string()))?;
-        Ok(Self { data: array })
+        Ok(Self {
+            data: Arc::new(array),
+        })
     }
 
     /// Get the shape of the tensor
@@ -118,7 +121,7 @@ impl Tensor {
 
     /// Get a mutable reference to the underlying data
     pub fn data_mut(&mut self) -> &mut ArrayD<f32> {
-        &mut self.data
+        Arc::make_mut(&mut self.data)
     }
 
     /// Element-wise addition
@@ -139,11 +142,18 @@ impl Tensor {
     /// }
     /// ```
     pub fn add(&self, other: &Tensor) -> Result<Tensor> {
-        // Handle broadcasting following ONNX/NumPy rules
-        let (left, right) = self.broadcast_tensors(other)?;
-
+        let out_shape = Self::broadcast_output_shape(self.shape(), other.shape())?;
+        let out_dim = ndarray::IxDyn(&out_shape);
+        let lhs = self
+            .data
+            .broadcast(out_dim.clone())
+            .ok_or_else(|| OnnxError::invalid_dimensions("add: broadcast failed".to_string()))?;
+        let rhs = other
+            .data
+            .broadcast(out_dim)
+            .ok_or_else(|| OnnxError::invalid_dimensions("add: broadcast failed".to_string()))?;
         Ok(Tensor {
-            data: &left.data + &right.data,
+            data: Arc::new(ndarray::Zip::from(lhs).and(rhs).map_collect(|&a, &b| a + b)),
         })
     }
 
@@ -165,180 +175,92 @@ impl Tensor {
     /// }
     /// ```
     pub fn mul(&self, other: &Tensor) -> Result<Tensor> {
-        // Handle broadcasting following ONNX/NumPy rules
-        let (left, right) = self.broadcast_tensors(other)?;
-
+        let out_shape = Self::broadcast_output_shape(self.shape(), other.shape())?;
+        let out_dim = ndarray::IxDyn(&out_shape);
+        let lhs = self
+            .data
+            .broadcast(out_dim.clone())
+            .ok_or_else(|| OnnxError::invalid_dimensions("mul: broadcast failed".to_string()))?;
+        let rhs = other
+            .data
+            .broadcast(out_dim)
+            .ok_or_else(|| OnnxError::invalid_dimensions("mul: broadcast failed".to_string()))?;
         Ok(Tensor {
-            data: &left.data * &right.data,
+            data: Arc::new(ndarray::Zip::from(lhs).and(rhs).map_collect(|&a, &b| a * b)),
         })
     }
 
-    /// Broadcast two tensors to compatible shapes following ONNX/NumPy rules
-    fn broadcast_tensors(&self, other: &Tensor) -> Result<(Tensor, Tensor)> {
-        let self_shape = self.shape();
-        let other_shape = other.shape();
-
-        // If shapes are identical, no broadcasting needed
-        if self_shape == other_shape {
-            return Ok((self.clone(), other.clone()));
-        }
-
-        // Special case: scalar broadcasting (empty shape)
-        if other_shape.is_empty() {
-            if other.data.len() != 1 {
-                return Err(OnnxError::invalid_dimensions(format!(
-                    "Scalar tensor must have exactly 1 element, got {}",
-                    other.data.len()
-                )));
-            }
-            let scalar_value = other.data.iter().next().unwrap();
-            let broadcasted_data = ndarray::Array::from_elem(self.data.raw_dim(), *scalar_value);
-            let broadcasted_other = Tensor {
-                data: broadcasted_data,
-            };
-            return Ok((self.clone(), broadcasted_other));
-        }
-
-        if self_shape.is_empty() {
-            if self.data.len() != 1 {
-                return Err(OnnxError::invalid_dimensions(format!(
-                    "Scalar tensor must have exactly 1 element, got {}",
-                    self.data.len()
-                )));
-            }
-            let scalar_value = self.data.iter().next().unwrap();
-            let broadcasted_data = ndarray::Array::from_elem(other.data.raw_dim(), *scalar_value);
-            let broadcasted_self = Tensor {
-                data: broadcasted_data,
-            };
-            return Ok((broadcasted_self, other.clone()));
-        }
-
-        // NumPy-style broadcasting: align dimensions from the right
-        let self_ndim = self_shape.len();
-        let other_ndim = other_shape.len();
-        let max_ndim = self_ndim.max(other_ndim);
-
-        // Create broadcasted shapes by padding with 1s on the left
-        let mut self_bc_shape = vec![1; max_ndim];
-        let mut other_bc_shape = vec![1; max_ndim];
-
-        // Fill in actual dimensions from the right
-        for i in 0..self_ndim {
-            self_bc_shape[max_ndim - self_ndim + i] = self_shape[i];
-        }
-        for i in 0..other_ndim {
-            other_bc_shape[max_ndim - other_ndim + i] = other_shape[i];
-        }
-
-        // Check broadcasting compatibility and compute result shape
-        let mut result_shape = vec![0; max_ndim];
+    /// Compute the NumPy-style broadcast output shape for two tensors.
+    ///
+    /// Aligns dimensions from the right, left-padding with 1s, and returns an
+    /// error if any pair of non-1 dimensions is incompatible.
+    fn broadcast_output_shape(a: &[usize], b: &[usize]) -> Result<Vec<usize>> {
+        let max_ndim = a.len().max(b.len());
+        let mut result = vec![0usize; max_ndim];
         for i in 0..max_ndim {
-            let dim_a = self_bc_shape[i];
-            let dim_b = other_bc_shape[i];
-
-            if dim_a == dim_b {
-                result_shape[i] = dim_a;
-            } else if dim_a == 1 {
-                result_shape[i] = dim_b;
-            } else if dim_b == 1 {
-                result_shape[i] = dim_a;
+            // Index from the right so we align dimensions correctly
+            let da = if i < a.len() { a[a.len() - 1 - i] } else { 1 };
+            let db = if i < b.len() { b[b.len() - 1 - i] } else { 1 };
+            result[max_ndim - 1 - i] = if da == db {
+                da
+            } else if da == 1 {
+                db
+            } else if db == 1 {
+                da
             } else {
                 return Err(OnnxError::invalid_dimensions(format!(
-                    "Cannot broadcast shapes {self_shape:?} and {other_shape:?}: incompatible dimensions {dim_a} and {dim_b}"
+                    "Cannot broadcast shapes {a:?} and {b:?}: incompatible dimensions {da} and {db}"
                 )));
-            }
+            };
         }
-
-        // Broadcast tensors to the result shape
-        let self_broadcasted = self.broadcast_to_shape(&result_shape)?;
-        let other_broadcasted = other.broadcast_to_shape(&result_shape)?;
-
-        Ok((self_broadcasted, other_broadcasted))
-    }
-
-    /// Broadcast this tensor to a target shape
-    fn broadcast_to_shape(&self, target_shape: &[usize]) -> Result<Tensor> {
-        let current_shape = self.shape();
-
-        if current_shape == target_shape {
-            return Ok(self.clone());
-        }
-
-        // Use ndarray's broadcast functionality
-        let mut broadcasted_data = self.data.clone();
-
-        // Reshape to match the target dimensionality by adding size-1 dimensions
-        let current_ndim = current_shape.len();
-        let target_ndim = target_shape.len();
-
-        if target_ndim > current_ndim {
-            // Need to add dimensions at the front
-            let mut new_shape = vec![1; target_ndim - current_ndim];
-            new_shape.extend_from_slice(current_shape);
-
-            // Reshape the array to have the correct number of dimensions
-            let new_dim = ndarray::IxDyn(&new_shape);
-            broadcasted_data = broadcasted_data
-                .to_shape(new_dim)
-                .map_err(|e| {
-                    OnnxError::invalid_dimensions(format!(
-                        "Failed to reshape for broadcasting: {e}"
-                    ))
-                })?
-                .into_owned();
-        }
-
-        // Now broadcast to the target shape
-        let target_dim = ndarray::IxDyn(target_shape);
-
-        // Create a view that can be broadcast
-        let broadcasted_view = broadcasted_data.broadcast(target_dim).ok_or_else(|| {
-            OnnxError::invalid_dimensions(format!(
-                "Failed to broadcast from {:?} to {:?}",
-                broadcasted_data.shape(),
-                target_shape
-            ))
-        })?;
-
-        // Convert the broadcasted view to an owned array
-        let result_data = broadcasted_view.to_owned();
-
-        Ok(Tensor { data: result_data })
+        Ok(result)
     }
 
     /// Element-wise division
     ///
     /// Returns an error if any element of `other` (after broadcasting) is zero.
     pub fn div(&self, other: &Tensor) -> Result<Tensor> {
-        // Handle broadcasting following ONNX/NumPy rules
-        let (left, right) = self.broadcast_tensors(other)?;
-
-        if right.data.iter().any(|&x| x == 0.0) {
+        if other.data.iter().any(|&x| x == 0.0) {
             return Err(OnnxError::invalid_dimensions(
                 "Division by zero: denominator tensor contains zero values".to_string(),
             ));
         }
-
+        let out_shape = Self::broadcast_output_shape(self.shape(), other.shape())?;
+        let out_dim = ndarray::IxDyn(&out_shape);
+        let lhs = self
+            .data
+            .broadcast(out_dim.clone())
+            .ok_or_else(|| OnnxError::invalid_dimensions("div: broadcast failed".to_string()))?;
+        let rhs = other
+            .data
+            .broadcast(out_dim)
+            .ok_or_else(|| OnnxError::invalid_dimensions("div: broadcast failed".to_string()))?;
         Ok(Tensor {
-            data: &left.data / &right.data,
+            data: Arc::new(ndarray::Zip::from(lhs).and(rhs).map_collect(|&a, &b| a / b)),
         })
     }
 
     /// Element-wise subtraction
     pub fn sub(&self, other: &Tensor) -> Result<Tensor> {
-        // Handle broadcasting following ONNX/NumPy rules
-        let (left, right) = self.broadcast_tensors(other)?;
-
+        let out_shape = Self::broadcast_output_shape(self.shape(), other.shape())?;
+        let out_dim = ndarray::IxDyn(&out_shape);
+        let lhs = self
+            .data
+            .broadcast(out_dim.clone())
+            .ok_or_else(|| OnnxError::invalid_dimensions("sub: broadcast failed".to_string()))?;
+        let rhs = other
+            .data
+            .broadcast(out_dim)
+            .ok_or_else(|| OnnxError::invalid_dimensions("sub: broadcast failed".to_string()))?;
         Ok(Tensor {
-            data: &left.data - &right.data,
+            data: Arc::new(ndarray::Zip::from(lhs).and(rhs).map_collect(|&a, &b| a - b)),
         })
     }
 
     /// Element-wise exponential
     pub fn exp(&self) -> Result<Tensor> {
         Ok(Tensor {
-            data: self.data.mapv(|x| x.exp()),
+            data: Arc::new(self.data.mapv(|x| x.exp())),
         })
     }
 
@@ -353,7 +275,7 @@ impl Tensor {
             ));
         }
         Ok(Tensor {
-            data: self.data.mapv(|x| x.sqrt()),
+            data: Arc::new(self.data.mapv(|x| x.sqrt())),
         })
     }
 
@@ -362,12 +284,22 @@ impl Tensor {
     /// Raises each element of `self` to the power of the corresponding element
     /// in `other`, following ONNX/NumPy broadcasting rules.
     pub fn pow(&self, other: &Tensor) -> Result<Tensor> {
-        let (left, right) = self.broadcast_tensors(other)?;
-
+        let out_shape = Self::broadcast_output_shape(self.shape(), other.shape())?;
+        let out_dim = ndarray::IxDyn(&out_shape);
+        let lhs = self
+            .data
+            .broadcast(out_dim.clone())
+            .ok_or_else(|| OnnxError::invalid_dimensions("pow: broadcast failed".to_string()))?;
+        let rhs = other
+            .data
+            .broadcast(out_dim)
+            .ok_or_else(|| OnnxError::invalid_dimensions("pow: broadcast failed".to_string()))?;
         Ok(Tensor {
-            data: ndarray::Zip::from(&left.data)
-                .and(&right.data)
-                .map_collect(|&a, &b| a.powf(b)),
+            data: Arc::new(
+                ndarray::Zip::from(lhs)
+                    .and(rhs)
+                    .map_collect(|&a, &b| a.powf(b)),
+            ),
         })
     }
 
@@ -446,7 +378,9 @@ impl Tensor {
             .map_err(|e| OnnxError::invalid_dimensions(e.to_string()))?
             .to_owned();
 
-        Ok(Tensor { data: reshaped })
+        Ok(Tensor {
+            data: Arc::new(reshaped),
+        })
     }
 
     /// Transpose the tensor with optional axis permutation
@@ -502,7 +436,9 @@ impl Tensor {
                     // 2D transpose
                     if axes == [1, 0] {
                         let transposed = self.data.t().to_owned();
-                        Ok(Tensor { data: transposed })
+                        Ok(Tensor {
+                            data: Arc::new(transposed),
+                        })
                     } else if axes == [0, 1] {
                         // Identity - no change
                         Ok(self.clone())
@@ -516,8 +452,10 @@ impl Tensor {
                     Ok(self.clone())
                 } else {
                     // General case: use ndarray's permuted_axes for any permutation
-                    let transposed = self.data.clone().permuted_axes(axes);
-                    Ok(Tensor { data: transposed })
+                    let transposed = self.data.as_ref().clone().permuted_axes(axes);
+                    Ok(Tensor {
+                        data: Arc::new(transposed),
+                    })
                 }
             }
             None => {
@@ -532,14 +470,18 @@ impl Tensor {
                 } else if ndim == 2 {
                     // 2-dimensional tensor - use built-in transpose
                     let transposed = self.data.t().to_owned();
-                    Ok(Tensor { data: transposed })
+                    Ok(Tensor {
+                        data: Arc::new(transposed),
+                    })
                 } else {
                     // Multi-dimensional tensor - for now, just do 2D transpose if possible
                     // or return error for truly multi-dimensional cases
                     log::warn!("Multi-dimensional transpose without perm not fully supported, treating as 2D if possible");
                     if ndim == 2 {
                         let transposed = self.data.t().to_owned();
-                        Ok(Tensor { data: transposed })
+                        Ok(Tensor {
+                            data: Arc::new(transposed),
+                        })
                     } else {
                         // For higher dimensions, return error
                         return Err(OnnxError::invalid_dimensions(format!(
@@ -608,7 +550,7 @@ impl Tensor {
             vec![1; num]
         };
 
-        let mut result = self.data.clone();
+        let mut result = self.data.as_ref().clone();
         for ((&axis, (&start, &end)), &step) in axes_vec
             .iter()
             .zip(starts.iter().zip(ends.iter()))
@@ -651,7 +593,9 @@ impl Tensor {
             result = result.slice_axis(ndarray::Axis(axis), slice).to_owned();
         }
 
-        Ok(Tensor { data: result })
+        Ok(Tensor {
+            data: Arc::new(result),
+        })
     }
 
     /// Apply ReLU activation (max(0, x))
@@ -679,7 +623,9 @@ impl Tensor {
         }
 
         let data = self.data.mapv(|x| x.max(0.0));
-        Ok(Tensor { data })
+        Ok(Tensor {
+            data: Arc::new(data),
+        })
     }
 
     /// Apply Sigmoid activation (1 / (1 + exp(-x)))
@@ -720,7 +666,9 @@ impl Tensor {
                 exp_x / (1.0 + exp_x)
             }
         });
-        Ok(Tensor { data })
+        Ok(Tensor {
+            data: Arc::new(data),
+        })
     }
 
     /// Applies the Softmax activation function along the last axis
@@ -762,7 +710,7 @@ impl Tensor {
         let last_axis = ndarray::Axis(ndim - 1);
 
         // Clone to get an owned, contiguous array we can mutate lane by lane.
-        let mut result = self.data.to_owned();
+        let mut result = self.data.as_ref().clone();
 
         for mut lane in result.lanes_mut(last_axis) {
             // Numerically stable: subtract max before exp.
@@ -777,7 +725,9 @@ impl Tensor {
             lane.mapv_inplace(|x| x / sum_exp);
         }
 
-        Ok(Tensor { data: result })
+        Ok(Tensor {
+            data: Arc::new(result),
+        })
     }
 
     /// Concatenate tensors along a specified axis
@@ -849,7 +799,9 @@ impl Tensor {
         let concatenated = ndarray::concatenate(ndarray::Axis(axis), &views)
             .map_err(|e| OnnxError::invalid_dimensions(format!("Concatenation failed: {e}")))?;
 
-        Ok(Tensor { data: concatenated })
+        Ok(Tensor {
+            data: Arc::new(concatenated),
+        })
     }
 }
 

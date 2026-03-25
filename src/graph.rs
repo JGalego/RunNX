@@ -231,11 +231,19 @@ impl Graph {
         let mut in_degree = vec![0; n];
         let mut adjacency_list: Vec<Vec<usize>> = vec![vec![]; n];
 
-        // Build adjacency list and in-degree count
+        // Build a map from tensor name -> indices of nodes that consume it (O(n))
+        let mut consumers: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (j, node) in self.nodes.iter().enumerate() {
+            for input in &node.inputs {
+                consumers.entry(input.as_str()).or_default().push(j);
+            }
+        }
+
+        // Build adjacency list and in-degree count using the consumer map (O(n))
         for (i, node) in self.nodes.iter().enumerate() {
             for output in &node.outputs {
-                for (j, other_node) in self.nodes.iter().enumerate() {
-                    if i != j && other_node.inputs.contains(output) {
+                if let Some(deps) = consumers.get(output.as_str()) {
+                    for &j in deps {
                         adjacency_list[i].push(j);
                         in_degree[j] += 1;
                     }

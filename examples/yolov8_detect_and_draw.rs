@@ -208,17 +208,11 @@ fn convert_to_image_coordinates(
             let width = detection.bbox[2];
             let height = detection.bbox[3];
 
-            // Convert to center coordinates
-            let center_x = (x1 + width / 2.0) * 640.0 * scale_factor;
-            let center_y = (y1 + height / 2.0) * 640.0 * scale_factor;
-            let box_width = width * 640.0 * scale_factor;
-            let box_height = height * 640.0 * scale_factor;
-
-            // Convert to corner coordinates
-            let final_x1 = center_x - box_width / 2.0;
-            let final_y1 = center_y - box_height / 2.0;
-            let final_x2 = center_x + box_width / 2.0;
-            let final_y2 = center_y + box_height / 2.0;
+            // Coordinates are already in 640px space; just scale to original image size
+            let final_x1 = x1 * scale_factor;
+            let final_y1 = y1 * scale_factor;
+            let final_x2 = (x1 + width) * scale_factor;
+            let final_y2 = (y1 + height) * scale_factor;
 
             // Clamp to image bounds
             let final_x1 = final_x1.max(0.0).min(original_size.0 as f32 - 1.0);

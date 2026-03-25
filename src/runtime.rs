@@ -236,8 +236,8 @@ impl Runtime {
             )));
         }
 
-        for (output_name, output_tensor) in node.outputs.iter().zip(output_tensors.iter()) {
-            context.add_tensor(output_name.clone(), output_tensor.clone());
+        for (output_name, output_tensor) in node.outputs.iter().zip(output_tensors.into_iter()) {
+            context.add_tensor(output_name.clone(), output_tensor);
         }
 
         // Update statistics
