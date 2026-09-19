@@ -83,7 +83,9 @@ mod coverage_tests {
         // Test run_with_stats method
         let (outputs, stats) = model.run_with_stats(&inputs).unwrap();
         assert!(!outputs.is_empty());
-        // Check that we get stats back (stats may be 0 if not properly implemented)
+        assert_eq!(stats.ops_executed, 2);
+        assert!(stats.memory_usage_bytes > 0);
+        assert_eq!(stats.op_times.len(), 2);
         assert!(stats.total_time_ms >= 0.0);
     }
 

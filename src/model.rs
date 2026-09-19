@@ -311,13 +311,7 @@ impl Model {
         inputs: &HashMap<String, Tensor>,
     ) -> Result<(HashMap<String, Tensor>, ExecutionStats)> {
         let runtime = Runtime::with_debug();
-        let outputs = runtime.execute(&self.graph, inputs.clone())?;
-
-        // In a full implementation, we would return the actual stats from the runtime
-        // For now, we return default stats
-        let stats = ExecutionStats::default();
-
-        Ok((outputs, stats))
+        runtime.execute_with_stats(&self.graph, inputs.clone())
     }
 
     /// Run inference with async support (feature gated)
@@ -561,7 +555,11 @@ mod tests {
 
         let (outputs, stats) = model.run_with_stats(&inputs).unwrap();
         assert!(outputs.contains_key("output"));
-        assert_eq!(stats.total_time_ms, 0.0); // Default stats for now
+        assert_eq!(stats.ops_executed, 2);
+        assert!(stats.memory_usage_bytes > 0);
+        assert!(stats.op_times.contains_key("MatMul"));
+        assert!(stats.op_times.contains_key("Add"));
+        assert!(stats.total_time_ms >= 0.0);
     }
 
     #[test]

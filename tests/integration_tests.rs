@@ -134,8 +134,6 @@ fn test_graph_validation() {
 fn test_activation_functions_edge_cases() -> Result<()> {
     use ndarray::Array1;
 
-    // Note: ReLU and Sigmoid will reject inputs with non-finite values (inf/nan)
-    // So we test with a range that doesn't include infinities
     let test_values = Tensor::from_array(Array1::from_vec(vec![-1000.0, -1.0, 0.0, 1.0, 1000.0]));
 
     let relu_result = test_values.relu()?;

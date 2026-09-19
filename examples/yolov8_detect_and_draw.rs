@@ -6,9 +6,7 @@
 //! - Post-processes results with NMS and confidence thresholding
 //! - Draws bounding boxes and saves the output image
 
-use image::{imageops::FilterType, DynamicImage, ImageReader, Rgb};
-use imageproc::drawing::draw_hollow_rect_mut;
-use imageproc::rect::Rect;
+use image::{imageops::FilterType, DynamicImage, ImageReader, Rgb, RgbImage};
 use runnx::*;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -315,15 +313,37 @@ fn draw_detections_on_image(
             let rect_y2 = (y2 + t).min(image.height() as i32);
 
             if rect_x2 > rect_x1 && rect_y2 > rect_y1 {
-                let rect_width = (rect_x2 - rect_x1) as u32;
-                let rect_height = (rect_y2 - rect_y1) as u32;
-                let rect = Rect::at(rect_x1, rect_y1).of_size(rect_width, rect_height);
-                draw_hollow_rect_mut(&mut image, rect, color);
+                draw_hollow_rectangle(
+                    &mut image,
+                    rect_x1 as u32,
+                    rect_y1 as u32,
+                    (rect_x2 - 1) as u32,
+                    (rect_y2 - 1) as u32,
+                    color,
+                );
             }
         }
     }
 
     Ok(DynamicImage::ImageRgb8(image))
+}
+
+fn draw_hollow_rectangle(
+    image: &mut RgbImage,
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+    color: Rgb<u8>,
+) {
+    for x in left..=right {
+        image.put_pixel(x, top, color);
+        image.put_pixel(x, bottom, color);
+    }
+    for y in top..=bottom {
+        image.put_pixel(left, y, color);
+        image.put_pixel(right, y, color);
+    }
 }
 
 /// Print detection results in a formatted table

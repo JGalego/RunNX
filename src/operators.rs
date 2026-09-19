@@ -109,6 +109,76 @@ fn parse_int_array(attr_value: &str) -> Result<Vec<i64>> {
         .collect()
 }
 
+fn non_negative_usize(value: i64, parameter: &str) -> Result<usize> {
+    usize::try_from(value).map_err(|_| {
+        OnnxError::invalid_dimensions(format!("{parameter} must be non-negative, got {value}"))
+    })
+}
+
+fn parse_non_negative_array(
+    value: &str,
+    parameter: &str,
+    expected_len: usize,
+) -> Result<Vec<usize>> {
+    let values = parse_int_array(value)?;
+    if values.len() != expected_len {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "{parameter} requires {expected_len} values, got {}",
+            values.len()
+        )));
+    }
+    values
+        .into_iter()
+        .map(|value| non_negative_usize(value, parameter))
+        .collect()
+}
+
+fn finite_integer_i64(value: f32, parameter: &str) -> Result<i64> {
+    let value_f64 = f64::from(value);
+    if !value.is_finite()
+        || value.fract() != 0.0
+        || value_f64 < i64::MIN as f64
+        || value_f64 >= 9_223_372_036_854_775_808.0
+    {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "{parameter} must be a finite integer representable as i64, got {value}"
+        )));
+    }
+
+    Ok(value as i64)
+}
+
+fn checked_element_count(shape: &[usize], operation: &str) -> Result<usize> {
+    if shape.contains(&0) {
+        return Ok(0);
+    }
+
+    let count = shape.iter().try_fold(1usize, |count, &dimension| {
+        count.checked_mul(dimension).ok_or_else(|| {
+            OnnxError::invalid_dimensions(format!(
+                "{operation} shape {shape:?} exceeds the addressable element count"
+            ))
+        })
+    })?;
+    if count > isize::MAX as usize / std::mem::size_of::<f32>() {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "{operation} shape {shape:?} exceeds the addressable byte size"
+        )));
+    }
+    Ok(count)
+}
+
+fn allocate_f32(count: usize, value: f32, operation: &str) -> Result<Vec<f32>> {
+    let mut data = Vec::new();
+    data.try_reserve_exact(count).map_err(|error| {
+        OnnxError::invalid_dimensions(format!(
+            "Unable to allocate {operation} with {count} elements: {error}"
+        ))
+    })?;
+    data.resize(count, value);
+    Ok(data)
+}
+
 /// Execute an operator with given inputs
 pub fn execute_operator(
     op_type: &OperatorType,
@@ -363,9 +433,9 @@ struct ConvParams {
 /// The `naive-conv` path is kept as a readable reference so readers can
 /// compare the algorithmic structure to the im2col transformation.
 fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Tensor>> {
-    if inputs.len() < 2 {
+    if !(2..=3).contains(&inputs.len()) {
         return Err(OnnxError::invalid_dimensions(format!(
-            "Conv operator requires at least 2 inputs (input, kernel), got {}",
+            "Conv operator requires 2 or 3 inputs (input, kernel, optional bias), got {}",
             inputs.len()
         )));
     }
@@ -400,6 +470,12 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
     let kernel_h = kernel_shape[2];
     let kernel_w = kernel_shape[3];
 
+    if kernel_h == 0 || kernel_w == 0 {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "Conv kernel dimensions must be non-zero, got {kernel_h}x{kernel_w}"
+        )));
+    }
+
     // Validate channel dimensions match
     if channels_in != channels_in_kernel {
         return Err(OnnxError::invalid_dimensions(format!(
@@ -407,59 +483,113 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
         )));
     }
 
-    // Parse attributes (defaults for typical CNN)
     log::debug!("Conv attributes: {attrs:?}");
 
-    // Parse strides - format: "[stride_h, stride_w]"
     let strides = attrs
         .get("strides")
-        .map(|s| {
-            // Remove brackets and split
-            let clean = s.trim_start_matches('[').trim_end_matches(']');
-            clean
-                .split(',')
-                .map(|p| p.trim().parse::<usize>().unwrap_or(1))
-                .collect::<Vec<_>>()
-        })
+        .map(|value| parse_non_negative_array(value, "Conv strides", 2))
+        .transpose()?
         .unwrap_or_else(|| vec![1, 1]);
+    let stride_h = strides[0];
+    let stride_w = strides[1];
 
-    let stride_h = strides.first().copied().unwrap_or(1);
-    let stride_w = strides.get(1).copied().unwrap_or(stride_h);
+    if stride_h == 0 || stride_w == 0 {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "Conv strides must be non-zero, got {stride_h}x{stride_w}"
+        )));
+    }
 
-    // Parse pads - format: "[pad_top, pad_left, pad_bottom, pad_right]"
     let pads = attrs
         .get("pads")
-        .map(|s| {
-            let clean = s.trim_start_matches('[').trim_end_matches(']');
-            clean
-                .split(',')
-                .map(|p| p.trim().parse::<usize>().unwrap_or(0))
-                .collect::<Vec<_>>()
+        .map(|value| parse_non_negative_array(value, "Conv pads", 4))
+        .transpose()?
+        .unwrap_or_else(|| vec![0, 0, 0, 0]);
+    let [pad_top, pad_left, pad_bottom, pad_right] = [pads[0], pads[1], pads[2], pads[3]];
+
+    if let Some(auto_pad) = attrs.get("auto_pad") {
+        if auto_pad != "NOTSET" {
+            return Err(OnnxError::unsupported_operation(format!(
+                "Conv auto_pad '{auto_pad}' is not implemented; provide explicit pads"
+            )));
+        }
+    }
+    let dilations = attrs
+        .get("dilations")
+        .map(|value| parse_non_negative_array(value, "Conv dilations", 2))
+        .transpose()?
+        .unwrap_or_else(|| vec![1, 1]);
+    if dilations != [1, 1] {
+        return Err(OnnxError::unsupported_operation(format!(
+            "Conv dilations {dilations:?} are not implemented"
+        )));
+    }
+    let group = attrs
+        .get("group")
+        .map(|value| {
+            value.parse::<usize>().map_err(|error| {
+                OnnxError::invalid_dimensions(format!("Invalid Conv group '{value}': {error}"))
+            })
         })
-        .unwrap_or_else(|| {
-            // Default padding to maintain spatial dimensions
-            let default_pad = (kernel_h - 1) / 2;
-            vec![default_pad, default_pad, default_pad, default_pad]
-        });
+        .transpose()?
+        .unwrap_or(1);
+    if group != 1 {
+        return Err(OnnxError::unsupported_operation(format!(
+            "Grouped Conv with group={group} is not implemented"
+        )));
+    }
+    if let Some(kernel_shape) = attrs.get("kernel_shape") {
+        let declared = parse_non_negative_array(kernel_shape, "Conv kernel_shape", 2)?;
+        if declared != [kernel_h, kernel_w] {
+            return Err(OnnxError::invalid_dimensions(format!(
+                "Conv kernel_shape {declared:?} does not match kernel tensor [{kernel_h}, {kernel_w}]"
+            )));
+        }
+    }
 
-    let pad_top = if pads.len() >= 4 {
-        pads[0]
-    } else {
-        pads.first().copied().unwrap_or(0)
-    };
-    let pad_left = if pads.len() >= 4 {
-        pads[1]
-    } else {
-        pads.get(1).copied().unwrap_or(pad_top)
-    };
-    let pad_bottom = if pads.len() >= 4 { pads[2] } else { pad_top };
-    let pad_right = if pads.len() >= 4 { pads[3] } else { pad_left };
+    if let Some(bias) = bias {
+        let bias_shape = bias.shape();
+        let supported_bias = bias_shape == [channels_out]
+            || (bias_shape.len() == 4
+                && bias_shape[0] == 1
+                && bias_shape[1] == channels_out
+                && bias_shape[2] == 1
+                && bias_shape[3] == 1);
+        if !supported_bias {
+            return Err(OnnxError::invalid_dimensions(format!(
+                "Conv bias shape {bias_shape:?} must be [{channels_out}] or [1, {channels_out}, 1, 1]"
+            )));
+        }
+    }
 
-    // Calculate output dimensions
-    let height_out = (height_in + pad_top + pad_bottom - kernel_h) / stride_h + 1;
-    let width_out = (width_in + pad_left + pad_right - kernel_w) / stride_w + 1;
+    // Calculate output dimensions with checked arithmetic because padding is model-controlled.
+    let padded_height = height_in
+        .checked_add(pad_top)
+        .and_then(|value| value.checked_add(pad_bottom))
+        .ok_or_else(|| OnnxError::invalid_dimensions("Conv padded height overflows usize"))?;
+    let padded_width = width_in
+        .checked_add(pad_left)
+        .and_then(|value| value.checked_add(pad_right))
+        .ok_or_else(|| OnnxError::invalid_dimensions("Conv padded width overflows usize"))?;
+
+    if padded_height < kernel_h || padded_width < kernel_w {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "Conv padded input {padded_height}x{padded_width} is smaller than kernel {kernel_h}x{kernel_w}"
+        )));
+    }
+
+    let height_out = (padded_height - kernel_h) / stride_h + 1;
+    let width_out = (padded_width - kernel_w) / stride_w + 1;
 
     let output_shape = [batch_size, channels_out, height_out, width_out];
+    checked_element_count(&output_shape, "Conv output")?;
+    channels_in
+        .checked_mul(kernel_h)
+        .and_then(|value| value.checked_mul(kernel_w))
+        .ok_or_else(|| OnnxError::invalid_dimensions("Conv kernel shape overflows usize"))?;
+    height_in
+        .checked_mul(width_in)
+        .and_then(|value| value.checked_mul(channels_in))
+        .ok_or_else(|| OnnxError::invalid_dimensions("Conv input shape overflows usize"))?;
 
     log::debug!("Conv: input {input_shape:?}, kernel {kernel_shape:?} -> output {output_shape:?}");
     log::debug!(
@@ -468,13 +598,14 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
 
     let input_data = input.data();
     let kernel_data = kernel.data();
-
-    let input_flat = input_data
-        .as_slice_memory_order()
-        .expect("Conv: input tensor must be contiguous");
-    let kernel_flat = kernel_data
-        .as_slice_memory_order()
-        .expect("Conv: kernel tensor must be contiguous");
+    let input_standard = input_data.as_standard_layout();
+    let kernel_standard = kernel_data.as_standard_layout();
+    let input_flat = input_standard.as_slice().ok_or_else(|| {
+        OnnxError::invalid_dimensions("Conv could not normalize the input tensor layout")
+    })?;
+    let kernel_flat = kernel_standard.as_slice().ok_or_else(|| {
+        OnnxError::invalid_dimensions("Conv could not normalize the kernel tensor layout")
+    })?;
 
     let p = ConvParams {
         batch_size,
@@ -495,7 +626,7 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
     // Dispatch to the selected back-end.
     // Priority when multiple features are set: naive-conv > blas > im2col.
     #[cfg(feature = "naive-conv")]
-    let mut output_data = conv_naive(&p, input_flat, kernel_flat);
+    let mut output_data = conv_naive(&p, input_flat, kernel_flat)?;
 
     #[cfg(all(feature = "blas", not(feature = "naive-conv")))]
     let mut output_data = conv_blas(&p, input_flat, kernel_flat)?;
@@ -526,27 +657,16 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
             }
         };
 
-        let supported_bias = bias_shape == [channels_out]
-            || (bias_shape.len() == 4
-                && bias_shape[0] == 1
-                && bias_shape[1] == channels_out
-                && bias_shape[2] == 1
-                && bias_shape[3] == 1);
-
-        if !supported_bias {
-            log::warn!("Conv: unsupported bias shape {bias_shape:?}, skipping bias addition");
-        } else {
-            let hw = height_out * width_out;
-            // Add bias for every (batch, channel) slice — must cover all batches.
-            for n in 0..batch_size {
-                let batch_offset = n * channels_out * hw;
-                for c_out in 0..channels_out {
-                    let bias_val = get_bias_val(c_out);
-                    let start = batch_offset + c_out * hw;
-                    let end = start + hw;
-                    for val in &mut output_data[start..end] {
-                        *val += bias_val;
-                    }
+        let hw = height_out * width_out;
+        // Add bias for every (batch, channel) slice — must cover all batches.
+        for n in 0..batch_size {
+            let batch_offset = n * channels_out * hw;
+            for c_out in 0..channels_out {
+                let bias_val = get_bias_val(c_out);
+                let start = batch_offset + c_out * hw;
+                let end = start + hw;
+                for val in &mut output_data[start..end] {
+                    *val += bias_val;
                 }
             }
         }
@@ -571,7 +691,7 @@ fn conv_op(inputs: &[Tensor], attrs: &HashMap<String, String>) -> Result<Vec<Ten
 /// the mathematical definition of convolution.  Uses precomputed flat-slice
 /// strides so it avoids dynamic ndarray index lookups.
 #[cfg(feature = "naive-conv")]
-fn conv_naive(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Vec<f32> {
+fn conv_naive(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Result<Vec<f32>> {
     let &ConvParams {
         batch_size,
         channels_in,
@@ -597,7 +717,11 @@ fn conv_naive(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Vec<f32> {
     let out_c_stride = out_hw;
     let out_n_stride = channels_out * out_hw;
 
-    let mut out = vec![0.0f32; batch_size * channels_out * height_out * width_out];
+    let output_len = checked_element_count(
+        &[batch_size, channels_out, height_out, width_out],
+        "Conv naive output",
+    )?;
+    let mut out = allocate_f32(output_len, 0.0, "Conv naive output")?;
 
     for n in 0..batch_size {
         for c_out in 0..channels_out {
@@ -632,7 +756,7 @@ fn conv_naive(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Vec<f32> {
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// **im2col back-end** (default, no extra features required)
@@ -676,15 +800,20 @@ fn conv_im2col(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Result<Vec<f32>
         width_out,
     } = p;
 
-    let patch_len = channels_in * kernel_h * kernel_w; // cols of col matrix
-    let n_patches = batch_size * height_out * width_out; // rows of col matrix
+    let patch_len = checked_element_count(
+        &[channels_in, kernel_h, kernel_w],
+        "Conv im2col kernel patch",
+    )?;
+    let n_patches =
+        checked_element_count(&[batch_size, height_out, width_out], "Conv im2col patches")?;
 
     // ------------------------------------------------------------------
     // Step 1: im2col — build the [n_patches, patch_len] column matrix.
     // Each row collects the input values (with zero-padding) that a single
     // output position (n, h_out, w_out) multiplies against the kernel.
     // ------------------------------------------------------------------
-    let mut col = vec![0.0f32; n_patches * patch_len];
+    let col_len = checked_element_count(&[n_patches, patch_len], "Conv im2col workspace")?;
+    let mut col = allocate_f32(col_len, 0.0, "Conv im2col workspace")?;
     let in_c_stride = height_in * width_in;
     let in_n_stride = channels_in * in_c_stride;
 
@@ -737,8 +866,14 @@ fn conv_im2col(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Result<Vec<f32>
     let out_slice = out_mat
         .as_slice()
         .expect("matmul output should be contiguous");
-    let hw = height_out * width_out;
-    let mut output = vec![0.0f32; batch_size * channels_out * hw];
+    let hw = height_out
+        .checked_mul(width_out)
+        .ok_or_else(|| OnnxError::invalid_dimensions("Conv output shape overflows usize"))?;
+    let output_len = checked_element_count(
+        &[batch_size, channels_out, height_out, width_out],
+        "Conv im2col output",
+    )?;
+    let mut output = allocate_f32(output_len, 0.0, "Conv im2col output")?;
     for n in 0..batch_size {
         for h in 0..height_out {
             for w in 0..width_out {
@@ -784,12 +919,17 @@ fn conv_blas(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Result<Vec<f32>> 
         width_out,
     } = p;
 
-    let patch_len = channels_in * kernel_h * kernel_w;
-    let n_patches = batch_size * height_out * width_out;
-    let hw = height_out * width_out;
+    let patch_len =
+        checked_element_count(&[channels_in, kernel_h, kernel_w], "Conv BLAS kernel patch")?;
+    let n_patches =
+        checked_element_count(&[batch_size, height_out, width_out], "Conv BLAS patches")?;
+    let hw = height_out
+        .checked_mul(width_out)
+        .ok_or_else(|| OnnxError::invalid_dimensions("Conv BLAS output shape overflows usize"))?;
 
     // Step 1: im2col (same as the default back-end).
-    let mut col = vec![0.0f32; n_patches * patch_len];
+    let col_len = checked_element_count(&[n_patches, patch_len], "Conv BLAS workspace")?;
+    let mut col = allocate_f32(col_len, 0.0, "Conv BLAS workspace")?;
     let in_c_stride = height_in * width_in;
     let in_n_stride = channels_in * in_c_stride;
 
@@ -828,11 +968,20 @@ fn conv_blas(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Result<Vec<f32>> 
     //   col    [m=n_patches, k=patch_len]   (row-major, no transpose)
     //   kernel [n=channels_out, k=patch_len] (row-major, transposed in GEMM)
     //   output [m, n]
-    let m = n_patches as i32;
-    let n = channels_out as i32;
-    let k = patch_len as i32;
-    let mut out_flat = vec![0.0f32; n_patches * channels_out];
+    let m = i32::try_from(n_patches)
+        .map_err(|_| OnnxError::invalid_dimensions("Conv BLAS patch count exceeds i32::MAX"))?;
+    let n = i32::try_from(channels_out)
+        .map_err(|_| OnnxError::invalid_dimensions("Conv BLAS output channels exceed i32::MAX"))?;
+    let k = i32::try_from(patch_len)
+        .map_err(|_| OnnxError::invalid_dimensions("Conv BLAS patch size exceeds i32::MAX"))?;
+    let flat_output_len =
+        checked_element_count(&[n_patches, channels_out], "Conv BLAS matrix output")?;
+    let mut out_flat = allocate_f32(flat_output_len, 0.0, "Conv BLAS matrix output")?;
 
+    // SAFETY: `col`, `kernel`, and `out_flat` are distinct, live f32 buffers.
+    // Their lengths are respectively m*k, n*k, and m*n from the checked shape
+    // products above. Row-major leading dimensions k, k, and n match SGEMM's
+    // A, transposed-B, and C layouts, and all dimensions fit in c_int/i32.
     unsafe {
         cblas::sgemm(
             cblas::Layout::RowMajor,
@@ -853,7 +1002,11 @@ fn conv_blas(p: &ConvParams, input: &[f32], kernel: &[f32]) -> Result<Vec<f32>> 
     }
 
     // Step 3: reindex [N·H·W, C_out] → [N, C_out, H, W].
-    let mut output = vec![0.0f32; batch_size * channels_out * hw];
+    let output_len = checked_element_count(
+        &[batch_size, channels_out, height_out, width_out],
+        "Conv BLAS output",
+    )?;
+    let mut output = allocate_f32(output_len, 0.0, "Conv BLAS output")?;
     for n in 0..batch_size {
         for h in 0..height_out {
             for w in 0..width_out {
@@ -1013,7 +1166,11 @@ fn reshape_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
     let shape_tensor = &inputs[1];
 
     // Extract shape from the second tensor
-    let raw_shape: Vec<i64> = shape_tensor.data().iter().map(|&x| x as i64).collect();
+    let raw_shape: Vec<i64> = shape_tensor
+        .data()
+        .iter()
+        .map(|&value| finite_integer_i64(value, "Reshape dimension"))
+        .collect::<Result<_>>()?;
     log::debug!(
         "Reshape: input shape {:?}, target shape {:?}",
         data.shape(),
@@ -1022,17 +1179,24 @@ fn reshape_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
 
     // Handle special ONNX reshape values
     let input_shape = data.shape();
-    let total_elements: usize = input_shape.iter().product();
+    let total_elements = data.len();
     let mut new_shape = Vec::new();
     let mut infer_dim_index = None;
-    let mut inferred_elements = 1;
+    let mut inferred_elements = 1usize;
 
     for (i, &dim) in raw_shape.iter().enumerate() {
         if dim == 0 {
             // In ONNX, 0 means copy the corresponding dimension from input
             if i < input_shape.len() {
                 new_shape.push(input_shape[i]);
-                inferred_elements *= input_shape[i];
+                inferred_elements =
+                    inferred_elements
+                        .checked_mul(input_shape[i])
+                        .ok_or_else(|| {
+                            OnnxError::invalid_dimensions(
+                                "Reshape known dimensions overflow usize".to_string(),
+                            )
+                        })?;
             } else {
                 return Err(OnnxError::invalid_dimensions(format!(
                     "Cannot copy dimension {i} from input shape {input_shape:?} (index out of bounds)"
@@ -1048,8 +1212,15 @@ fn reshape_op(inputs: &[Tensor]) -> Result<Vec<Tensor>> {
             infer_dim_index = Some(i);
             new_shape.push(0); // placeholder
         } else if dim > 0 {
-            new_shape.push(dim as usize);
-            inferred_elements *= dim as usize;
+            let dimension = usize::try_from(dim).map_err(|_| {
+                OnnxError::invalid_dimensions(format!(
+                    "Reshape dimension {dim} is not representable as usize"
+                ))
+            })?;
+            new_shape.push(dimension);
+            inferred_elements = inferred_elements.checked_mul(dimension).ok_or_else(|| {
+                OnnxError::invalid_dimensions("Reshape known dimensions overflow usize")
+            })?;
         } else {
             return Err(OnnxError::invalid_dimensions(format!(
                 "Invalid dimension {dim} in reshape"
@@ -1111,9 +1282,10 @@ fn transpose_op(
                 log::debug!("Transpose: using perm attribute {p:?}");
                 Some(p)
             }
-            Err(_) => {
-                log::warn!("Transpose: invalid perm attribute '{perm_str}', using default");
-                None
+            Err(error) => {
+                return Err(OnnxError::invalid_dimensions(format!(
+                    "Invalid Transpose perm attribute '{perm_str}': {error}"
+                )))
             }
         }
     } else {
@@ -1212,28 +1384,21 @@ fn slice_op(
         let starts: Vec<i64> = starts_tensor
             .data()
             .iter()
-            .map(|&x| {
-                // Round to nearest integer first to handle floating point precision issues
-                x.round() as i64
-            })
-            .collect();
+            .map(|&value| finite_integer_i64(value, "Slice start"))
+            .collect::<Result<_>>()?;
         let ends: Vec<i64> = ends_tensor
             .data()
             .iter()
-            .map(|&x| {
-                // Handle the special case where -1.0 gets cast incorrectly to a huge positive number
-                if x < -0.5 && x > -1.5 {
-                    // This is likely -1.0, which means "end of dimension"
-                    -1
-                } else if x > (i64::MAX as f32 * 0.9) {
-                    // This is likely a corrupted -1 that became i64::MAX
-                    -1
+            .map(|&value| {
+                if value >= i64::MAX as f32 * 0.9 {
+                    Ok(i64::MAX)
+                } else if value <= i64::MIN as f32 * 0.9 {
+                    Ok(i64::MIN)
                 } else {
-                    // Round to nearest integer first, preserving negative values
-                    x.round() as i64
+                    finite_integer_i64(value, "Slice end")
                 }
             })
-            .collect();
+            .collect::<Result<_>>()?;
 
         log::debug!("Slice: raw starts tensor data: {:?}", starts_tensor.data());
         log::debug!("Slice: raw ends tensor data: {:?}", ends_tensor.data());
@@ -1246,8 +1411,8 @@ fn slice_op(
                 inputs[3]
                     .data()
                     .iter()
-                    .map(|&x| x as i64)
-                    .collect::<Vec<_>>(),
+                    .map(|&value| finite_integer_i64(value, "Slice axis"))
+                    .collect::<Result<Vec<_>>>()?,
             )
         } else {
             None
@@ -1259,8 +1424,8 @@ fn slice_op(
                 inputs[4]
                     .data()
                     .iter()
-                    .map(|&x| x as i64)
-                    .collect::<Vec<_>>(),
+                    .map(|&value| finite_integer_i64(value, "Slice step"))
+                    .collect::<Result<Vec<_>>>()?,
             )
         } else {
             None
@@ -1295,11 +1460,9 @@ fn slice_op(
                 let result = inputs[0].slice(&starts, &ends, axes.as_deref(), steps.as_deref())?;
                 Ok(vec![result])
             }
-            _ => {
-                // Missing required attributes - use simplified implementation
-                log::warn!("Slice operator missing required attributes - returning input tensor");
-                Ok(vec![data.clone()])
-            }
+            _ => Err(OnnxError::invalid_dimensions(
+                "Slice requires starts and ends inputs or attributes".to_string(),
+            )),
         }
     }
 }
@@ -1324,14 +1487,14 @@ fn upsample_op(
         ));
     }
 
-    let _mode = attributes
+    let mode = attributes
         .get("mode")
         .map(|s| s.as_str())
         .unwrap_or("nearest");
 
-    // Simplified implementation - just return the input tensor
-    log::warn!("Upsample operator is simplified - returning input tensor");
-    Ok(vec![inputs[0].clone()])
+    Err(OnnxError::unsupported_operation(format!(
+        "Upsample mode '{mode}' is not implemented"
+    )))
 }
 
 /// MaxPool operator implementation
@@ -1363,22 +1526,71 @@ fn maxpool_op(
     }
 
     // Parse kernel shape, strides, and padding
-    let kernel_shape = parse_int_array(
-        attributes
-            .get("kernel_shape")
-            .unwrap_or(&"[2,2]".to_string()),
-    )?;
-    let strides = parse_int_array(attributes.get("strides").unwrap_or(&"[1,1]".to_string()))?;
-    let pads = parse_int_array(attributes.get("pads").unwrap_or(&"[0,0,0,0]".to_string()))?;
+    let kernel_shape = attributes
+        .get("kernel_shape")
+        .map(|value| parse_non_negative_array(value, "MaxPool kernel_shape", 2))
+        .transpose()?
+        .unwrap_or_else(|| vec![2, 2]);
+    let strides = attributes
+        .get("strides")
+        .map(|value| parse_non_negative_array(value, "MaxPool strides", 2))
+        .transpose()?
+        .unwrap_or_else(|| vec![1, 1]);
+    let pads = attributes
+        .get("pads")
+        .map(|value| parse_non_negative_array(value, "MaxPool pads", 4))
+        .transpose()?
+        .unwrap_or_else(|| vec![0, 0, 0, 0]);
 
-    let kernel_h = kernel_shape.first().copied().unwrap_or(2) as usize;
-    let kernel_w = kernel_shape.get(1).copied().unwrap_or(2) as usize;
-    let stride_h = strides.first().copied().unwrap_or(1) as usize;
-    let stride_w = strides.get(1).copied().unwrap_or(1) as usize;
-    let pad_top = pads.first().copied().unwrap_or(0) as usize;
-    let pad_left = pads.get(1).copied().unwrap_or(0) as usize;
-    let pad_bottom = pads.get(2).copied().unwrap_or(0) as usize;
-    let pad_right = pads.get(3).copied().unwrap_or(0) as usize;
+    let [kernel_h, kernel_w] = [kernel_shape[0], kernel_shape[1]];
+    let [stride_h, stride_w] = [strides[0], strides[1]];
+    let [pad_top, pad_left, pad_bottom, pad_right] = [pads[0], pads[1], pads[2], pads[3]];
+
+    if let Some(auto_pad) = attributes.get("auto_pad") {
+        if auto_pad != "NOTSET" {
+            return Err(OnnxError::unsupported_operation(format!(
+                "MaxPool auto_pad '{auto_pad}' is not implemented; provide explicit pads"
+            )));
+        }
+    }
+    let dilations = attributes
+        .get("dilations")
+        .map(|value| parse_non_negative_array(value, "MaxPool dilations", 2))
+        .transpose()?
+        .unwrap_or_else(|| vec![1, 1]);
+    if dilations != [1, 1] {
+        return Err(OnnxError::unsupported_operation(format!(
+            "MaxPool dilations {dilations:?} are not implemented"
+        )));
+    }
+    for (attribute, description) in [
+        ("ceil_mode", "ceil mode"),
+        ("storage_order", "storage order"),
+    ] {
+        if let Some(value) = attributes.get(attribute) {
+            let parsed = value.parse::<i64>().map_err(|error| {
+                OnnxError::invalid_dimensions(format!(
+                    "Invalid MaxPool {attribute} '{value}': {error}"
+                ))
+            })?;
+            if parsed != 0 {
+                return Err(OnnxError::unsupported_operation(format!(
+                    "MaxPool {description} {parsed} is not implemented"
+                )));
+            }
+        }
+    }
+
+    if kernel_h == 0 || kernel_w == 0 {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "MaxPool kernel dimensions must be non-zero, got {kernel_h}x{kernel_w}"
+        )));
+    }
+    if stride_h == 0 || stride_w == 0 {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "MaxPool strides must be non-zero, got {stride_h}x{stride_w}"
+        )));
+    }
 
     let input_shape = input.shape();
     let batch_size = input_shape[0];
@@ -1386,14 +1598,34 @@ fn maxpool_op(
     let input_h = input_shape[2];
     let input_w = input_shape[3];
 
-    // Calculate output dimensions
-    let output_h = (input_h + pad_top + pad_bottom - kernel_h) / stride_h + 1;
-    let output_w = (input_w + pad_left + pad_right - kernel_w) / stride_w + 1;
+    // Calculate output dimensions with checked arithmetic because attributes are model-controlled.
+    let padded_h = input_h
+        .checked_add(pad_top)
+        .and_then(|value| value.checked_add(pad_bottom))
+        .ok_or_else(|| OnnxError::invalid_dimensions("MaxPool padded height overflows usize"))?;
+    let padded_w = input_w
+        .checked_add(pad_left)
+        .and_then(|value| value.checked_add(pad_right))
+        .ok_or_else(|| OnnxError::invalid_dimensions("MaxPool padded width overflows usize"))?;
+    if padded_h < kernel_h || padded_w < kernel_w {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "MaxPool padded input {padded_h}x{padded_w} is smaller than kernel {kernel_h}x{kernel_w}"
+        )));
+    }
+
+    let output_h = (padded_h - kernel_h) / stride_h + 1;
+    let output_w = (padded_w - kernel_w) / stride_w + 1;
     let output_shape = [batch_size, channels, output_h, output_w];
 
     log::debug!("MaxPool: {input_h}x{input_w} -> {output_h}x{output_w}, kernel={kernel_h}x{kernel_w}, stride={stride_h}x{stride_w}, pad=[{pad_top},{pad_left},{pad_bottom},{pad_right}]");
 
-    let mut output_data = Vec::with_capacity(output_shape.iter().product());
+    let output_len = checked_element_count(&output_shape, "MaxPool output")?;
+    let mut output_data = Vec::new();
+    output_data.try_reserve_exact(output_len).map_err(|error| {
+        OnnxError::invalid_dimensions(format!(
+            "Unable to allocate MaxPool output with shape {output_shape:?}: {error}"
+        ))
+    })?;
     let input_data = input.data();
 
     // Perform max pooling
@@ -1424,11 +1656,6 @@ fn maxpool_op(
                                 }
                             }
                         }
-                    }
-
-                    // If no valid values found (all padding), use 0
-                    if max_val == f32::NEG_INFINITY {
-                        max_val = 0.0;
                     }
 
                     output_data.push(max_val);
@@ -1491,108 +1718,30 @@ fn softmax_op(
         normalized_axis
     );
 
-    // For now, implement a simplified version that applies softmax to the last axis
-    // A full implementation would handle arbitrary axis
-    if input.ndim() <= 2 || normalized_axis == input.ndim() - 1 {
-        // Use existing tensor softmax method for simple cases
-        let result = input.softmax()?;
-        log::debug!(
-            "Softmax: used tensor method, output shape {:?}",
-            result.shape()
-        );
-        Ok(vec![result])
-    } else {
-        // For complex multi-dimensional cases, implement axis-specific softmax
-        let input_shape = input.shape();
-
-        // Use tensor operations for safer data access
-        let total_elements = input_shape.iter().product::<usize>();
-        let axis_size = input_shape[normalized_axis];
-
-        log::debug!("Softmax: complex case - shape {input_shape:?}, axis {normalized_axis}, axis_size {axis_size}");
-
-        // Create output tensor with zeros
-        let mut output = crate::tensor::Tensor::zeros(input_shape);
-
-        // Calculate the number of slices along the specified axis
-        let num_slices = total_elements / axis_size;
-
-        // Calculate strides for efficient indexing
-        let mut strides = vec![1; input.ndim()];
-        for i in (0..input.ndim() - 1).rev() {
-            strides[i] = strides[i + 1] * input_shape[i + 1];
-        }
-        let axis_stride = strides[normalized_axis];
-
-        // Process each slice along the specified axis
-        for slice_idx in 0..num_slices {
-            // Find the starting position for this slice
-            let mut base_idx = 0;
-            let mut remaining = slice_idx;
-
-            for dim in 0..input.ndim() {
-                if dim != normalized_axis {
-                    let dim_size = input_shape[dim];
-                    let coord = remaining % dim_size;
-                    remaining /= dim_size;
-                    base_idx += coord * strides[dim];
-                }
-            }
-
-            // Collect values along the axis for this slice using direct array access
-            let mut axis_values = Vec::with_capacity(axis_size);
-            for i in 0..axis_size {
-                let idx = base_idx + i * axis_stride;
-
-                // Convert linear index to multi-dimensional coordinates
-                let mut coords = vec![0; input.ndim()];
-                let mut temp_idx = idx;
-                for dim in (0..input.ndim()).rev() {
-                    coords[dim] = temp_idx % input_shape[dim];
-                    temp_idx /= input_shape[dim];
-                }
-
-                // Get value using array indexing
-                let value = input.data()[&*coords];
-                axis_values.push(value);
-            }
-
-            // Apply softmax with numerical stabilization
-            let max_val = axis_values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-            let exp_values: Vec<f32> = axis_values.iter().map(|&x| (x - max_val).exp()).collect();
-            let sum_exp: f32 = exp_values.iter().sum();
-
-            if sum_exp == 0.0 || !sum_exp.is_finite() {
-                // Fallback to uniform distribution
-                let uniform_val = 1.0 / axis_size as f32;
-                for i in 0..axis_size {
-                    let idx = base_idx + i * axis_stride;
-                    let mut coords = vec![0; input.ndim()];
-                    let mut temp_idx = idx;
-                    for dim in (0..input.ndim()).rev() {
-                        coords[dim] = temp_idx % input_shape[dim];
-                        temp_idx /= input_shape[dim];
-                    }
-                    output.data_mut()[&*coords] = uniform_val;
-                }
-            } else {
-                for (i, &exp_val) in exp_values.iter().enumerate().take(axis_size) {
-                    let idx = base_idx + i * axis_stride;
-                    let mut coords = vec![0; input.ndim()];
-                    let mut temp_idx = idx;
-                    for dim in (0..input.ndim()).rev() {
-                        coords[dim] = temp_idx % input_shape[dim];
-                        temp_idx /= input_shape[dim];
-                    }
-                    let softmax_val = exp_val / sum_exp;
-                    output.data_mut()[&*coords] = softmax_val;
-                }
-            }
-        }
-
-        log::debug!("Softmax: output shape {:?}", output.shape());
-        Ok(vec![output])
+    if input.is_empty() {
+        return Err(OnnxError::invalid_dimensions(
+            "Cannot apply softmax to empty tensor".to_string(),
+        ));
     }
+
+    let mut output = input.data().clone();
+    for mut lane in output.lanes_mut(ndarray::Axis(normalized_axis)) {
+        let max_value = lane
+            .iter()
+            .fold(f32::NEG_INFINITY, |current, &value| current.max(value));
+        lane.mapv_inplace(|value| (value - max_value).exp());
+        let denominator: f32 = lane.iter().sum();
+        if denominator == 0.0 || !denominator.is_finite() {
+            return Err(OnnxError::invalid_dimensions(
+                "Softmax denominator is zero or non-finite".to_string(),
+            ));
+        }
+        lane.mapv_inplace(|value| value / denominator);
+    }
+
+    let result = Tensor::from_array(output);
+    log::debug!("Softmax: output shape {:?}", result.shape());
+    Ok(vec![result])
 }
 
 /// NonMaxSuppression operator implementation
@@ -1616,11 +1765,9 @@ fn nms_op(
         )));
     }
 
-    // Simplified implementation - return empty tensor
-    // A full implementation would perform actual NMS algorithm
-    log::warn!("NonMaxSuppression operator is simplified - returning empty tensor");
-    let empty_result = Tensor::zeros(&[0, 3]); // [num_selected_indices, 3] format
-    Ok(vec![empty_result])
+    Err(OnnxError::unsupported_operation(
+        "NonMaxSuppression is not implemented".to_string(),
+    ))
 }
 
 /// BatchNormalization operator implementation
@@ -1656,6 +1803,11 @@ fn batch_norm_op(
         .get("epsilon")
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(1e-5);
+    if !epsilon.is_finite() || epsilon < 0.0 {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "BatchNormalization epsilon must be finite and non-negative, got {epsilon}"
+        )));
+    }
 
     log::debug!(
         "BatchNorm: input shape {:?}, epsilon {}",
@@ -1689,12 +1841,20 @@ fn batch_norm_op(
         )));
     }
 
-    // Get parameter data
-    let scale_data = scale.data().as_slice().unwrap();
-    let bias_data = bias.data().as_slice().unwrap();
-    let mean_data = mean.data().as_slice().unwrap();
-    let var_data = variance.data().as_slice().unwrap();
-    let input_data = input.data().as_slice().unwrap();
+    let scale_data = scale.data();
+    let bias_data = bias.data();
+    let mean_data = mean.data();
+    let var_data = variance.data();
+    let input_data = input.data();
+
+    if var_data
+        .iter()
+        .any(|value| !value.is_finite() || *value < 0.0)
+    {
+        return Err(OnnxError::invalid_dimensions(
+            "BatchNormalization variance must contain finite, non-negative values".to_string(),
+        ));
+    }
 
     // Create output data
     let mut output_data = vec![0.0; input_data.len()];
@@ -1716,7 +1876,7 @@ fn batch_norm_op(
             for h in 0..height {
                 for w in 0..width {
                     let i = idx(n, c, h, w);
-                    let normalized = (input_data[i] - mean_val) * inv_std;
+                    let normalized = (input_data[[n, c, h, w]] - mean_val) * inv_std;
                     output_data[i] = scale_val * normalized + bias_val;
                 }
             }
@@ -1743,10 +1903,11 @@ fn split_op(
     inputs: &[Tensor],
     attributes: &std::collections::HashMap<String, String>,
 ) -> Result<Vec<Tensor>> {
-    if inputs.is_empty() {
-        return Err(OnnxError::invalid_dimensions(
-            "Split requires at least 1 input".to_string(),
-        ));
+    if inputs.is_empty() || inputs.len() > 2 {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "Split requires 1 or 2 inputs, got {}",
+            inputs.len()
+        )));
     }
 
     let input = &inputs[0];
@@ -1779,15 +1940,16 @@ fn split_op(
         split_tensor
             .data()
             .iter()
-            .map(|&x| x as usize)
-            .collect::<Vec<_>>()
+            .map(|&size| {
+                let size = finite_integer_i64(size, "Split size")?;
+                non_negative_usize(size, "Split size")
+            })
+            .collect::<Result<Vec<_>>>()?
     } else if let Some(split_attr) = attributes.get("split") {
-        // Parse split sizes from attribute string
-        let cleaned = split_attr.trim_matches(['[', ']']);
-        cleaned
-            .split(',')
-            .map(|s| s.trim().parse::<usize>().unwrap_or(1))
-            .collect()
+        parse_int_array(split_attr)?
+            .into_iter()
+            .map(|size| non_negative_usize(size, "Split size"))
+            .collect::<Result<Vec<_>>>()?
     } else {
         // Default: split into equal parts (assume 2 parts for simplicity)
         let num_splits = 2;
@@ -1803,7 +1965,11 @@ fn split_op(
     };
 
     // Validate split sizes
-    let total_size: usize = split_sizes.iter().sum();
+    let total_size = split_sizes.iter().try_fold(0usize, |total, &size| {
+        total
+            .checked_add(size)
+            .ok_or_else(|| OnnxError::invalid_dimensions("Split sizes overflow usize"))
+    })?;
     if total_size != axis_size {
         return Err(OnnxError::invalid_dimensions(format!(
             "Split sizes sum ({total_size}) must equal axis size ({axis_size})"
@@ -1823,7 +1989,10 @@ fn split_op(
 
     for &split_size in &split_sizes {
         if split_size == 0 {
-            continue; // Skip zero-sized splits
+            let mut output_shape = input.shape().to_vec();
+            output_shape[normalized_axis] = 0;
+            results.push(Tensor::from_shape_vec(&output_shape, Vec::new())?);
+            continue;
         }
 
         // Create slice parameters for this split
@@ -1832,11 +2001,15 @@ fn split_op(
 
         for i in 0..input.ndim() {
             if i == normalized_axis {
-                starts[i] = current_offset as i64;
-                ends[i] = (current_offset + split_size) as i64;
+                starts[i] = i64::try_from(current_offset)
+                    .map_err(|_| OnnxError::invalid_dimensions("Split offset exceeds i64::MAX"))?;
+                ends[i] = i64::try_from(current_offset + split_size)
+                    .map_err(|_| OnnxError::invalid_dimensions("Split end exceeds i64::MAX"))?;
             } else {
                 starts[i] = 0;
-                ends[i] = input.shape()[i] as i64;
+                ends[i] = i64::try_from(input.shape()[i]).map_err(|_| {
+                    OnnxError::invalid_dimensions("Split input dimension exceeds i64::MAX")
+                })?;
             }
         }
 
@@ -1909,27 +2082,33 @@ fn gather_op(
 
     log::debug!("Gather: output shape {output_shape:?}");
 
-    // Get indices as integers
-    let indices_data = indices.data().as_slice().unwrap();
-    let indices_int: Vec<usize> = indices_data
+    // ONNX Gather indices must be integers in the range [-s, s - 1], where s
+    // is the size of the selected axis.
+    let axis_size_signed = axis_size as i128;
+    let indices_int: Vec<usize> = indices
+        .data()
         .iter()
-        .map(|&x| {
-            let idx = x as i64;
-            // Handle negative indices
-            let normalized_idx = if idx < 0 {
-                (axis_size as i64 + idx) as usize
-            } else {
-                idx as usize
-            };
-
-            if normalized_idx >= axis_size {
-                // Clamp to valid range
-                axis_size - 1
-            } else {
-                normalized_idx
+        .map(|&value| {
+            if !value.is_finite() || value.fract() != 0.0 {
+                return Err(OnnxError::invalid_dimensions(format!(
+                    "Gather index {value} is not a finite integer"
+                )));
             }
+
+            let index = value as i128;
+            if index < -axis_size_signed || index >= axis_size_signed {
+                return Err(OnnxError::invalid_dimensions(format!(
+                    "Gather index {index} is out of bounds for axis {normalized_axis} with size {axis_size}"
+                )));
+            }
+
+            Ok(if index < 0 {
+                (axis_size_signed + index) as usize
+            } else {
+                index as usize
+            })
         })
-        .collect();
+        .collect::<Result<_>>()?;
 
     // Calculate strides for input tensor
     let mut data_strides = vec![1; data.ndim()];
@@ -1943,8 +2122,12 @@ fn gather_op(
         output_strides[i] = output_strides[i + 1] * output_shape[i + 1];
     }
 
-    let data_data = data.data().as_slice().unwrap();
-    let mut output_data = vec![0.0; output_shape.iter().product()];
+    let data_standard = data.data().as_standard_layout();
+    let data_data = data_standard.as_slice().ok_or_else(|| {
+        OnnxError::invalid_dimensions("Gather could not normalize the input tensor layout")
+    })?;
+    let output_len = checked_element_count(&output_shape, "Gather output")?;
+    let mut output_data = allocate_f32(output_len, 0.0, "Gather output")?;
 
     // Iterate through all output positions
     for (output_idx, output_val) in output_data.iter_mut().enumerate() {
@@ -2014,18 +2197,30 @@ fn constant_of_shape_op(
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(0.0);
 
-    // Create tensor with specified shape and constant value
-    let shape_data = inputs[0].data();
-    let shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
+    if inputs[0].ndim() != 1 {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "ConstantOfShape shape input must be 1D, got {} dimensions",
+            inputs[0].ndim()
+        )));
+    }
 
-    let result = if value == 0.0 {
-        Tensor::zeros(&shape)
-    } else if value == 1.0 {
-        Tensor::ones(&shape)
-    } else {
-        let data = vec![value; shape.iter().product()];
-        Tensor::from_shape_vec(&shape, data)?
-    };
+    let shape: Vec<usize> = inputs[0]
+        .data()
+        .iter()
+        .map(|&dimension| {
+            let dimension = finite_integer_i64(dimension, "ConstantOfShape dimension")?;
+            non_negative_usize(dimension, "ConstantOfShape dimension")
+        })
+        .collect::<Result<_>>()?;
+    let element_count = checked_element_count(&shape, "ConstantOfShape output")?;
+    let mut data = Vec::new();
+    data.try_reserve_exact(element_count).map_err(|error| {
+        OnnxError::invalid_dimensions(format!(
+            "Unable to allocate ConstantOfShape output with shape {shape:?}: {error}"
+        ))
+    })?;
+    data.resize(element_count, value);
+    let result = Tensor::from_shape_vec(&shape, data)?;
 
     Ok(vec![result])
 }
@@ -2033,7 +2228,7 @@ fn constant_of_shape_op(
 /// Cast operator implementation
 fn cast_op(
     inputs: &[Tensor],
-    _attributes: &std::collections::HashMap<String, String>,
+    attributes: &std::collections::HashMap<String, String>,
 ) -> Result<Vec<Tensor>> {
     if inputs.len() != 1 {
         return Err(OnnxError::invalid_dimensions(format!(
@@ -2042,9 +2237,15 @@ fn cast_op(
         )));
     }
 
-    // Simplified implementation - assume all data is already f32
-    log::warn!("Cast operator is simplified - returning input tensor");
-    Ok(vec![inputs[0].clone()])
+    match attributes.get("to").map(String::as_str) {
+        Some("1" | "float" | "float32") => Ok(vec![inputs[0].clone()]),
+        Some(target) => Err(OnnxError::unsupported_operation(format!(
+            "Cast target '{target}' is not supported; RunNX tensors are float32"
+        ))),
+        None => Err(OnnxError::invalid_dimensions(
+            "Cast requires the 'to' attribute".to_string(),
+        )),
+    }
 }
 
 /// Shape operator implementation
@@ -2312,9 +2513,21 @@ fn pad_op(
         .map(|s| s.as_str())
         .unwrap_or("constant");
 
+    if mode != "constant" {
+        return Err(OnnxError::unsupported_operation(format!(
+            "Pad mode '{mode}' is not implemented"
+        )));
+    }
+
     // Get padding values
-    let pads_data = pads_tensor.data().as_slice().unwrap();
-    let pads: Vec<usize> = pads_data.iter().map(|&x| x as usize).collect();
+    let pads: Vec<usize> = pads_tensor
+        .data()
+        .iter()
+        .map(|&padding| {
+            let padding = finite_integer_i64(padding, "Pad value")?;
+            non_negative_usize(padding, "Pad value")
+        })
+        .collect::<Result<_>>()?;
 
     let input_shape = input.shape();
     let ndim = input.ndim();
@@ -2338,33 +2551,44 @@ fn pad_op(
     let output_shape: Vec<usize> = input_shape
         .iter()
         .enumerate()
-        .map(|(i, &size)| size + begin_pads[i] + end_pads[i])
-        .collect();
-
-    // Only implement constant padding for now (most common usage)
-    if mode != "constant" {
-        log::warn!("Pad: only constant mode supported, got {mode}");
-        return Ok(vec![input.clone()]);
-    }
+        .map(|(i, &size)| {
+            size.checked_add(begin_pads[i])
+                .and_then(|value| value.checked_add(end_pads[i]))
+                .ok_or_else(|| {
+                    OnnxError::invalid_dimensions(format!(
+                        "Pad output dimension {i} overflows usize"
+                    ))
+                })
+        })
+        .collect::<Result<_>>()?;
 
     log::debug!("Pad: output shape {output_shape:?}");
 
     // Create output tensor filled with constant value
-    let mut output_data = vec![constant_value; output_shape.iter().product()];
-    let input_data = input.data().as_slice().unwrap();
+    let output_len = checked_element_count(&output_shape, "Pad output")?;
+    let mut output_data = Vec::new();
+    output_data.try_reserve_exact(output_len).map_err(|error| {
+        OnnxError::invalid_dimensions(format!(
+            "Unable to allocate Pad output with shape {output_shape:?}: {error}"
+        ))
+    })?;
+    output_data.resize(output_len, constant_value);
 
     // Calculate strides for both input and output
-    let mut input_strides = vec![1; ndim];
-    let mut output_strides = vec![1; ndim];
+    let mut input_strides = vec![1usize; ndim];
+    let mut output_strides = vec![1usize; ndim];
 
-    for i in (0..ndim - 1).rev() {
-        input_strides[i] = input_strides[i + 1] * input_shape[i + 1];
-        output_strides[i] = output_strides[i + 1] * output_shape[i + 1];
+    for i in (0..ndim.saturating_sub(1)).rev() {
+        input_strides[i] = input_strides[i + 1]
+            .checked_mul(input_shape[i + 1])
+            .ok_or_else(|| OnnxError::invalid_dimensions("Pad input strides overflow usize"))?;
+        output_strides[i] = output_strides[i + 1]
+            .checked_mul(output_shape[i + 1])
+            .ok_or_else(|| OnnxError::invalid_dimensions("Pad output strides overflow usize"))?;
     }
 
     // Copy input data to the appropriate region in output
-    let total_input_elements = input_data.len();
-    for (input_idx, &input_val) in input_data.iter().enumerate().take(total_input_elements) {
+    for (input_idx, &input_val) in input.data().iter().enumerate() {
         // Convert flat input index to multi-dimensional coordinates
         let mut input_coords = vec![0; ndim];
         let mut remaining = input_idx;
@@ -2472,23 +2696,88 @@ fn reduce_mean_op(
     inputs: &[Tensor],
     attributes: &std::collections::HashMap<String, String>,
 ) -> Result<Vec<Tensor>> {
-    if inputs.len() != 1 {
+    if inputs.is_empty() || inputs.len() > 2 {
         return Err(OnnxError::invalid_dimensions(format!(
-            "ReduceMean requires exactly 1 input, got {}",
+            "ReduceMean requires 1 or 2 inputs, got {}",
             inputs.len()
         )));
     }
 
-    let _axes = attributes.get("axes");
-    let _keepdims = attributes
-        .get("keepdims")
-        .and_then(|s| s.parse::<i32>().ok())
-        .unwrap_or(1);
-
-    // Simplified implementation - return mean of all elements
     let input = &inputs[0];
-    let mean_value = input.data().iter().sum::<f32>() / input.data().len() as f32;
-    let result = Tensor::from_shape_vec(&[1], vec![mean_value])?;
+    let keepdims = match attributes.get("keepdims").map(String::as_str) {
+        None | Some("1" | "true") => true,
+        Some("0" | "false") => false,
+        Some(value) => {
+            return Err(OnnxError::invalid_dimensions(format!(
+                "ReduceMean keepdims must be 0 or 1, got '{value}'"
+            )))
+        }
+    };
+    let noop_with_empty_axes = match attributes.get("noop_with_empty_axes").map(String::as_str) {
+        None | Some("0" | "false") => false,
+        Some("1" | "true") => true,
+        Some(value) => {
+            return Err(OnnxError::invalid_dimensions(format!(
+                "ReduceMean noop_with_empty_axes must be 0 or 1, got '{value}'"
+            )))
+        }
+    };
+
+    let specified_axes = if inputs.len() == 2 {
+        Some(
+            inputs[1]
+                .data()
+                .iter()
+                .map(|&axis| finite_integer_i64(axis, "ReduceMean axis"))
+                .collect::<Result<Vec<_>>>()?,
+        )
+    } else {
+        attributes
+            .get("axes")
+            .map(|axes| parse_int_array(axes))
+            .transpose()?
+    };
+
+    if matches!(&specified_axes, Some(axes) if axes.is_empty()) && noop_with_empty_axes {
+        return Ok(vec![input.clone()]);
+    }
+
+    let rank = input.ndim() as i64;
+    let axes = specified_axes.unwrap_or_else(|| (0..rank).collect());
+    let mut normalized_axes = Vec::with_capacity(axes.len());
+    for axis in axes {
+        if axis < -rank || axis >= rank {
+            return Err(OnnxError::invalid_dimensions(format!(
+                "ReduceMean axis {axis} out of bounds for tensor with {} dimensions",
+                input.ndim()
+            )));
+        }
+        normalized_axes.push(if axis < 0 {
+            (rank + axis) as usize
+        } else {
+            axis as usize
+        });
+    }
+    normalized_axes.sort_unstable();
+    if normalized_axes.windows(2).any(|axes| axes[0] == axes[1]) {
+        return Err(OnnxError::invalid_dimensions(
+            "ReduceMean axes must be unique".to_string(),
+        ));
+    }
+
+    let mut output = input.data().clone();
+    for &axis in normalized_axes.iter().rev() {
+        let reduced = output.mean_axis(ndarray::Axis(axis)).ok_or_else(|| {
+            OnnxError::invalid_dimensions(format!("ReduceMean cannot reduce empty axis {axis}"))
+        })?;
+        output = if keepdims {
+            reduced.insert_axis(ndarray::Axis(axis))
+        } else {
+            reduced
+        };
+    }
+
+    let result = Tensor::from_array(output);
 
     Ok(vec![result])
 }
@@ -2510,174 +2799,127 @@ fn resize_op(
     inputs: &[Tensor],
     attributes: &std::collections::HashMap<String, String>,
 ) -> Result<Vec<Tensor>> {
-    if inputs.is_empty() {
-        return Err(OnnxError::invalid_dimensions(
-            "Resize requires at least 1 input".to_string(),
-        ));
+    if inputs.is_empty() || inputs.len() > 2 {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "Resize requires 1 or 2 inputs in the supported signature, got {}",
+            inputs.len()
+        )));
     }
 
     let input = &inputs[0];
-    log::debug!(
-        "Resize: input shape {:?}, num_inputs: {}",
-        input.shape(),
-        inputs.len()
-    );
-
-    // Debug: Print all attributes
-    for (key, value) in attributes {
-        log::debug!("Resize attribute: {key} = {value}");
+    if input.ndim() != 4 {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "Resize requires a 4D input, got {} dimensions",
+            input.ndim()
+        )));
     }
 
-    // Debug: Print info about all input tensors
-    for (i, inp) in inputs.iter().enumerate() {
-        let first_few: Vec<f32> = inp.data().iter().take(8).copied().collect();
-        log::debug!(
-            "Resize input[{}]: shape {:?}, first few values: {:?}",
-            i,
-            inp.shape(),
-            first_few
-        );
+    let mode = attributes
+        .get("mode")
+        .map(String::as_str)
+        .unwrap_or("nearest");
+    if mode != "nearest" {
+        return Err(OnnxError::unsupported_operation(format!(
+            "Resize mode '{mode}' is not implemented"
+        )));
     }
 
-    // Get scale factors from inputs (typical ONNX Resize has roi, scales as inputs)
-    if inputs.len() >= 2 {
-        let scales_tensor = &inputs[1]; // scales is typically the 2nd input (index 1)
-        let scales: Vec<f32> = scales_tensor.data().iter().copied().collect();
-        log::debug!("Resize scales from input: {scales:?}");
-
-        // For 4D tensor (NCHW), scales should be [batch_scale, channel_scale, height_scale, width_scale]
-        if scales.len() >= 4 && input.ndim() == 4 {
-            let input_shape = input.shape();
-            let batch_size = input_shape[0];
-            let channels = input_shape[1];
-            let height = input_shape[2];
-            let width = input_shape[3];
-
-            // Calculate new dimensions
-            let new_height = (height as f32 * scales[2]) as usize;
-            let new_width = (width as f32 * scales[3]) as usize;
-
-            log::debug!(
-                "Resize: {}x{} -> {}x{} (scales: {:.2}x{:.2})",
-                height,
-                width,
-                new_height,
-                new_width,
-                scales[2],
-                scales[3]
-            );
-
-            let output_shape = [batch_size, channels, new_height, new_width];
-
-            // Simple nearest neighbor upsampling
-            let mut output_data = Vec::with_capacity(output_shape.iter().product());
-            let input_data = input.data();
-
-            for batch in 0..batch_size {
-                for channel in 0..channels {
-                    for new_h in 0..new_height {
-                        for new_w in 0..new_width {
-                            // Map back to original coordinates (nearest neighbor)
-                            let orig_h = ((new_h as f32) / scales[2]) as usize;
-                            let orig_w = ((new_w as f32) / scales[3]) as usize;
-                            let orig_h = orig_h.min(height - 1);
-                            let orig_w = orig_w.min(width - 1);
-
-                            // Access using multi-dimensional indexing
-                            let value = input_data[[batch, channel, orig_h, orig_w]];
-                            output_data.push(value);
-                        }
-                    }
-                }
-            }
-
-            let result = Tensor::from_shape_vec(&output_shape, output_data)?;
-            log::debug!(
-                "Resize: input {:?} -> output {:?} (scales: {:?})",
-                input.shape(),
-                result.shape(),
-                scales
-            );
-            return Ok(vec![result]);
+    let scales = if let Some(scales_tensor) = inputs.get(1) {
+        if scales_tensor.ndim() != 1 {
+            return Err(OnnxError::invalid_dimensions(format!(
+                "Resize scales input must be 1D, got {} dimensions",
+                scales_tensor.ndim()
+            )));
         }
-    }
-
-    // Try to get scale from attributes if not in inputs
-    if let Some(scales_str) = attributes.get("scales") {
-        log::debug!("Resize scales from attributes: {scales_str}");
-        // Parse scales from attribute (e.g., "[1.0, 1.0, 2.0, 2.0]")
+        scales_tensor.data().iter().copied().collect::<Vec<_>>()
+    } else if let Some(scales_str) = attributes.get("scales") {
         let cleaned = scales_str.trim_matches(['[', ']']);
-        let scales: std::result::Result<Vec<f32>, _> = cleaned
+        cleaned
             .split(',')
-            .map(|s| s.trim().parse::<f32>())
-            .collect();
+            .map(|value| {
+                value.trim().parse::<f32>().map_err(|error| {
+                    OnnxError::invalid_dimensions(format!(
+                        "Invalid Resize scale '{}': {error}",
+                        value.trim()
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        return Err(OnnxError::invalid_dimensions(
+            "Resize requires four scale values for a 4D input".to_string(),
+        ));
+    };
 
-        if let Ok(scales) = scales {
-            if scales.len() >= 4 && input.ndim() == 4 {
-                let input_shape = input.shape();
-                let batch_size = input_shape[0];
-                let channels = input_shape[1];
-                let height = input_shape[2];
-                let width = input_shape[3];
+    if scales.len() != 4 {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "Resize requires four scale values for a 4D input, got {}",
+            scales.len()
+        )));
+    }
+    if scales
+        .iter()
+        .any(|scale| !scale.is_finite() || *scale <= 0.0)
+    {
+        return Err(OnnxError::invalid_dimensions(format!(
+            "Resize scales must be finite and positive, got {scales:?}"
+        )));
+    }
+    if scales[0] != 1.0 || scales[1] != 1.0 {
+        return Err(OnnxError::unsupported_operation(format!(
+            "Resize only supports batch and channel scales of 1, got {} and {}",
+            scales[0], scales[1]
+        )));
+    }
 
-                // Calculate new dimensions
-                let new_height = (height as f32 * scales[2]) as usize;
-                let new_width = (width as f32 * scales[3]) as usize;
+    let input_shape = input.shape();
+    let [batch_size, channels, height, width] = [
+        input_shape[0],
+        input_shape[1],
+        input_shape[2],
+        input_shape[3],
+    ];
+    let scaled_dimension = |dimension: usize, scale: f32, name: &str| -> Result<usize> {
+        let scaled = dimension as f64 * f64::from(scale);
+        if scaled > usize::MAX as f64 {
+            return Err(OnnxError::invalid_dimensions(format!(
+                "Resize {name} exceeds usize"
+            )));
+        }
+        Ok(scaled.floor() as usize)
+    };
+    let new_height = scaled_dimension(height, scales[2], "height")?;
+    let new_width = scaled_dimension(width, scales[3], "width")?;
+    let output_shape = [batch_size, channels, new_height, new_width];
+    let output_len = checked_element_count(&output_shape, "Resize output")?;
+    let mut output_data = Vec::new();
+    output_data.try_reserve_exact(output_len).map_err(|error| {
+        OnnxError::invalid_dimensions(format!(
+            "Unable to allocate Resize output with shape {output_shape:?}: {error}"
+        ))
+    })?;
 
-                log::debug!(
-                    "Resize from attributes: {}x{} -> {}x{} (scales: {:.2}x{:.2})",
-                    height,
-                    width,
-                    new_height,
-                    new_width,
-                    scales[2],
-                    scales[3]
-                );
-
-                let output_shape = [batch_size, channels, new_height, new_width];
-
-                // Simple nearest neighbor upsampling
-                let mut output_data = Vec::with_capacity(output_shape.iter().product());
-                let input_data = input.data();
-
-                for batch in 0..batch_size {
-                    for channel in 0..channels {
-                        for new_h in 0..new_height {
-                            for new_w in 0..new_width {
-                                // Map back to original coordinates (nearest neighbor)
-                                let orig_h = ((new_h as f32) / scales[2]) as usize;
-                                let orig_w = ((new_w as f32) / scales[3]) as usize;
-                                let orig_h = orig_h.min(height - 1);
-                                let orig_w = orig_w.min(width - 1);
-
-                                // Access using multi-dimensional indexing
-                                let value = input_data[[batch, channel, orig_h, orig_w]];
-                                output_data.push(value);
-                            }
-                        }
-                    }
+    let input_data = input.data();
+    for batch in 0..batch_size {
+        for channel in 0..channels {
+            for output_h in 0..new_height {
+                for output_w in 0..new_width {
+                    let input_h = ((output_h as f64) / f64::from(scales[2])).floor() as usize;
+                    let input_w = ((output_w as f64) / f64::from(scales[3])).floor() as usize;
+                    output_data.push(
+                        input_data[[
+                            batch,
+                            channel,
+                            input_h.min(height - 1),
+                            input_w.min(width - 1),
+                        ]],
+                    );
                 }
-
-                let result = Tensor::from_shape_vec(&output_shape, output_data)?;
-                log::debug!(
-                    "Resize: input {:?} -> output {:?} (scales: {:?})",
-                    input.shape(),
-                    result.shape(),
-                    scales
-                );
-                return Ok(vec![result]);
             }
         }
     }
 
-    // Fallback: simplified implementation
-    log::warn!("Resize operator using simplified implementation - returning input tensor");
-    log::debug!(
-        "Resize fallback: input shape {:?}, attributes: {:?}",
-        input.shape(),
-        attributes
-    );
-    Ok(vec![input.clone()])
+    Ok(vec![Tensor::from_shape_vec(&output_shape, output_data)?])
 }
 
 #[cfg(test)]
@@ -2901,6 +3143,26 @@ mod tests {
     }
 
     #[test]
+    fn test_conv_op_handles_non_standard_input_layout() {
+        let array = Array4::from_shape_vec((1, 1, 2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+            .unwrap()
+            .permuted_axes([0, 1, 3, 2]);
+        let input = Tensor::from_array(array);
+        assert!(!input.data().is_standard_layout());
+        let kernel = Tensor::from_shape_vec(&[1, 1, 1, 1], vec![1.0]).unwrap();
+
+        let result = execute_operator(
+            &OperatorType::Conv,
+            &[input.clone(), kernel],
+            &HashMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result[0].shape(), input.shape());
+        assert_eq!(result[0].data(), input.data());
+    }
+
+    #[test]
     fn test_conv_op_insufficient_inputs() {
         let input = Tensor::zeros(&[1, 1, 3, 3]);
         let inputs = vec![input]; // Only 1 input, should be at least 2
@@ -2911,7 +3173,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("at least 2 inputs"));
+            .contains("requires 2 or 3 inputs"));
     }
 
     #[test]
@@ -3282,9 +3544,8 @@ mod tests {
         let mut attrs = HashMap::new();
         attrs.insert("mode".to_string(), "nearest".to_string());
 
-        let result = execute_operator(&OperatorType::Upsample, &inputs, &attrs).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].shape(), &[1, 1, 2, 2]);
+        let error = execute_operator(&OperatorType::Upsample, &inputs, &attrs).unwrap_err();
+        assert!(error.to_string().contains("not implemented"));
     }
 
     #[test]
@@ -3308,6 +3569,31 @@ mod tests {
         let result = execute_operator(&OperatorType::MaxPool, &inputs, &attrs);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("4D input tensor"));
+    }
+
+    #[test]
+    fn test_maxpool_op_rejects_invalid_dimensions() {
+        let input = Tensor::from_shape_vec(&[1, 1, 2, 2], vec![1.0; 4]).unwrap();
+
+        let mut zero_stride = HashMap::new();
+        zero_stride.insert("strides".to_string(), "[0,1]".to_string());
+        let error =
+            execute_operator(&OperatorType::MaxPool, &[input.clone()], &zero_stride).unwrap_err();
+        assert!(error.to_string().contains("strides must be non-zero"));
+
+        let mut negative_padding = HashMap::new();
+        negative_padding.insert("pads".to_string(), "[-1,0,0,0]".to_string());
+        let error = execute_operator(&OperatorType::MaxPool, &[input.clone()], &negative_padding)
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("MaxPool pads must be non-negative"));
+
+        let mut oversized_kernel = HashMap::new();
+        oversized_kernel.insert("kernel_shape".to_string(), "[3,3]".to_string());
+        let error =
+            execute_operator(&OperatorType::MaxPool, &[input], &oversized_kernel).unwrap_err();
+        assert!(error.to_string().contains("smaller than kernel"));
     }
 
     #[test]
@@ -3348,9 +3634,9 @@ mod tests {
         let inputs = vec![boxes, scores];
         let attrs = HashMap::new();
 
-        let result = execute_operator(&OperatorType::NonMaxSuppression, &inputs, &attrs).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].shape(), &[0, 3]); // Empty result from simplified implementation
+        let error =
+            execute_operator(&OperatorType::NonMaxSuppression, &inputs, &attrs).unwrap_err();
+        assert!(error.to_string().contains("not implemented"));
     }
 
     #[test]
@@ -3409,7 +3695,7 @@ mod tests {
         slice_attrs.insert("starts".to_string(), "0".to_string());
         slice_attrs.insert("ends".to_string(), "1".to_string());
         assert!(execute_operator(&OperatorType::Slice, &[tensor_1d.clone()], &slice_attrs).is_ok());
-        assert!(execute_operator(&OperatorType::Upsample, &[tensor_4d.clone()], &attrs).is_ok());
+        assert!(execute_operator(&OperatorType::Upsample, &[tensor_4d.clone()], &attrs).is_err());
         assert!(execute_operator(&OperatorType::MaxPool, &[tensor_4d.clone()], &attrs).is_ok());
         assert!(execute_operator(&OperatorType::Softmax, &[tensor_1d.clone()], &attrs).is_ok());
         assert!(execute_operator(
@@ -3417,7 +3703,7 @@ mod tests {
             &[tensor_4d.clone(), tensor_1d.clone()],
             &attrs
         )
-        .is_ok());
+        .is_err());
     }
 
     // ========================================
@@ -3588,6 +3874,29 @@ mod tests {
     }
 
     #[test]
+    fn test_constant_of_shape_rejects_invalid_dimensions() {
+        for dimension in [-1.0, 1.5, f32::NAN, f32::INFINITY] {
+            let shape = Tensor::from_shape_vec(&[1], vec![dimension]).unwrap();
+            let result =
+                execute_operator(&OperatorType::ConstantOfShape, &[shape], &HashMap::new());
+            assert!(result.is_err(), "dimension {dimension} should be rejected");
+        }
+
+        let shape = Tensor::from_shape_vec(&[2], vec![4_294_967_296.0, 4_294_967_296.0]).unwrap();
+        let result = execute_operator(&OperatorType::ConstantOfShape, &[shape], &HashMap::new());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_constant_of_shape_requires_vector_input() {
+        let shape = Tensor::from_shape_vec(&[1, 2], vec![2.0, 3.0]).unwrap();
+
+        let error = execute_operator(&OperatorType::ConstantOfShape, &[shape], &HashMap::new())
+            .unwrap_err();
+        assert!(error.to_string().contains("shape input must be 1D"));
+    }
+
+    #[test]
     fn test_shape_op() {
         let a = Tensor::from_array(
             Array3::from_shape_vec((2, 3, 4), (0..24).map(|x| x as f32).collect()).unwrap(),
@@ -3713,6 +4022,46 @@ mod tests {
     }
 
     #[test]
+    fn test_batch_normalization_handles_non_standard_layout() {
+        let array = Array4::from_shape_vec((1, 1, 2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+            .unwrap()
+            .permuted_axes([0, 1, 3, 2]);
+        let input = Tensor::from_array(array);
+        assert!(!input.data().is_standard_layout());
+        let scale = Tensor::from_shape_vec(&[1], vec![1.0]).unwrap();
+        let bias = Tensor::from_shape_vec(&[1], vec![0.0]).unwrap();
+        let mean = Tensor::from_shape_vec(&[1], vec![0.0]).unwrap();
+        let variance = Tensor::from_shape_vec(&[1], vec![1.0]).unwrap();
+        let mut attrs = HashMap::new();
+        attrs.insert("epsilon".to_string(), "0".to_string());
+
+        let result = execute_operator(
+            &OperatorType::BatchNormalization,
+            &[input.clone(), scale, bias, mean, variance],
+            &attrs,
+        )
+        .unwrap();
+        assert_eq!(result[0].data(), input.data());
+    }
+
+    #[test]
+    fn test_batch_normalization_rejects_invalid_variance() {
+        let input = Tensor::from_shape_vec(&[1, 1, 2, 1], vec![1.0; 2]).unwrap();
+        let scale = Tensor::from_shape_vec(&[1], vec![1.0]).unwrap();
+        let bias = Tensor::from_shape_vec(&[1], vec![0.0]).unwrap();
+        let mean = Tensor::from_shape_vec(&[1], vec![0.0]).unwrap();
+        let variance = Tensor::from_shape_vec(&[1], vec![-1.0]).unwrap();
+
+        let error = execute_operator(
+            &OperatorType::BatchNormalization,
+            &[input, scale, bias, mean, variance],
+            &HashMap::new(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("variance"));
+    }
+
+    #[test]
     fn test_pad_op() {
         let a =
             Tensor::from_array(Array2::from_shape_vec((2, 2), vec![1.0, 2.0, 3.0, 4.0]).unwrap());
@@ -3731,6 +4080,18 @@ mod tests {
     }
 
     #[test]
+    fn test_pad_op_rejects_invalid_padding_values() {
+        let input = Tensor::from_shape_vec(&[2], vec![1.0, 2.0]).unwrap();
+
+        for padding in [-1.0, 1.5, f32::NAN, f32::INFINITY] {
+            let pads = Tensor::from_shape_vec(&[2], vec![padding, 0.0]).unwrap();
+            let result =
+                execute_operator(&OperatorType::Pad, &[input.clone(), pads], &HashMap::new());
+            assert!(result.is_err(), "padding {padding} should be rejected");
+        }
+    }
+
+    #[test]
     fn test_reduce_mean_op() {
         let a = Tensor::from_array(
             Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap(),
@@ -3738,8 +4099,9 @@ mod tests {
         let mut attrs = HashMap::new();
         attrs.insert("axes".to_string(), "1".to_string());
 
-        let result = execute_operator(&OperatorType::ReduceMean, &[a], &attrs);
-        assert!(result.is_ok() || result.is_err()); // Implementation dependent
+        let result = execute_operator(&OperatorType::ReduceMean, &[a], &attrs).unwrap();
+        assert_eq!(result[0].shape(), &[2, 1]);
+        assert_eq!(result[0].data().as_slice().unwrap(), &[2.0, 5.0]);
     }
 
     #[test]
@@ -3778,8 +4140,37 @@ mod tests {
         let mut attrs = HashMap::new();
         attrs.insert("scales".to_string(), "1.0,1.0,2.0,2.0".to_string());
 
-        let result = execute_operator(&OperatorType::Resize, &[a], &attrs);
-        assert!(result.is_ok() || result.is_err()); // Implementation dependent
+        let result = execute_operator(&OperatorType::Resize, &[a], &attrs).unwrap();
+        assert_eq!(result[0].shape(), &[1, 1, 4, 4]);
+        assert_eq!(
+            result[0].data().as_slice().unwrap(),
+            &[1.0, 1.0, 2.0, 2.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 3.0, 3.0, 4.0, 4.0,]
+        );
+    }
+
+    #[test]
+    fn test_resize_op_rejects_invalid_scales_and_modes() {
+        let input = Tensor::from_shape_vec(&[1, 1, 2, 2], vec![1.0; 4]).unwrap();
+        for scales in [
+            vec![1.0, 1.0, 0.0, 2.0],
+            vec![1.0, 1.0, -1.0, 2.0],
+            vec![1.0, 1.0, f32::NAN, 2.0],
+            vec![2.0, 1.0, 2.0, 2.0],
+        ] {
+            let scales = Tensor::from_shape_vec(&[4], scales).unwrap();
+            assert!(execute_operator(
+                &OperatorType::Resize,
+                &[input.clone(), scales],
+                &HashMap::new(),
+            )
+            .is_err());
+        }
+
+        let mut attrs = HashMap::new();
+        attrs.insert("scales".to_string(), "[1,1,2,2]".to_string());
+        attrs.insert("mode".to_string(), "linear".to_string());
+        let error = execute_operator(&OperatorType::Resize, &[input], &attrs).unwrap_err();
+        assert!(error.to_string().contains("not implemented"));
     }
 
     #[test]
@@ -3864,6 +4255,17 @@ mod tests {
     }
 
     #[test]
+    fn test_conv_op_defaults_to_zero_padding() {
+        let input = Tensor::from_shape_vec(&[1, 1, 5, 5], vec![1.0; 25]).unwrap();
+        let kernel = Tensor::from_shape_vec(&[1, 1, 3, 3], vec![1.0; 9]).unwrap();
+
+        let result =
+            execute_operator(&OperatorType::Conv, &[input, kernel], &HashMap::new()).unwrap();
+
+        assert_eq!(result[0].shape(), &[1, 1, 3, 3]);
+    }
+
+    #[test]
     fn test_conv_op_malformed_strides() {
         let input = Tensor::from_shape_vec(&[1, 1, 3, 3], vec![1.0; 9]).unwrap();
         let kernel = Tensor::from_shape_vec(&[1, 1, 2, 2], vec![0.25; 4]).unwrap();
@@ -3872,9 +4274,70 @@ mod tests {
         let mut attrs = HashMap::new();
         attrs.insert("strides".to_string(), "invalid_stride".to_string());
 
-        // Should handle parsing errors gracefully and use defaults
-        let result = execute_operator(&OperatorType::Conv, &inputs, &attrs);
-        assert!(result.is_ok()); // Should still work with defaults
+        let error = execute_operator(&OperatorType::Conv, &inputs, &attrs).unwrap_err();
+        assert!(error.to_string().contains("Failed to parse integer"));
+    }
+
+    #[test]
+    fn test_conv_op_rejects_kernel_larger_than_padded_input() {
+        let input = Tensor::from_shape_vec(&[1, 1, 2, 2], vec![1.0; 4]).unwrap();
+        let kernel = Tensor::from_shape_vec(&[1, 1, 5, 5], vec![0.1; 25]).unwrap();
+        let mut attrs = HashMap::new();
+        attrs.insert("pads".to_string(), "[0,0,0,0]".to_string());
+
+        let error = execute_operator(&OperatorType::Conv, &[input, kernel], &attrs).unwrap_err();
+        assert!(error.to_string().contains("smaller than kernel"));
+    }
+
+    #[test]
+    fn test_conv_op_rejects_zero_stride() {
+        let input = Tensor::from_shape_vec(&[1, 1, 3, 3], vec![1.0; 9]).unwrap();
+        let kernel = Tensor::from_shape_vec(&[1, 1, 2, 2], vec![0.25; 4]).unwrap();
+        let mut attrs = HashMap::new();
+        attrs.insert("strides".to_string(), "[0,1]".to_string());
+
+        let error = execute_operator(&OperatorType::Conv, &[input, kernel], &attrs).unwrap_err();
+        assert!(error.to_string().contains("strides must be non-zero"));
+    }
+
+    #[test]
+    fn test_conv_op_rejects_zero_sized_kernel() {
+        let input = Tensor::from_shape_vec(&[1, 1, 3, 3], vec![1.0; 9]).unwrap();
+        let kernel = Tensor::from_shape_vec(&[1, 1, 0, 2], vec![]).unwrap();
+
+        let error =
+            execute_operator(&OperatorType::Conv, &[input, kernel], &HashMap::new()).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("kernel dimensions must be non-zero"));
+    }
+
+    #[test]
+    fn test_conv_op_rejects_unaddressable_output() {
+        let input = Tensor::from_shape_vec(&[1, 1, 1, 1], vec![1.0]).unwrap();
+        let kernel = Tensor::from_shape_vec(&[1, 1, 1, 1], vec![1.0]).unwrap();
+        let mut attrs = HashMap::new();
+        attrs.insert(
+            "pads".to_string(),
+            format!("[{},0,{},0]", i64::MAX, i64::MAX),
+        );
+
+        let error = execute_operator(&OperatorType::Conv, &[input, kernel], &attrs).unwrap_err();
+        assert!(error.to_string().contains("addressable byte size"));
+    }
+
+    #[test]
+    fn test_conv_op_rejects_padding_overflow() {
+        let input = Tensor::from_shape_vec(&[1, 1, 2, 1], vec![1.0; 2]).unwrap();
+        let kernel = Tensor::from_shape_vec(&[1, 1, 1, 1], vec![1.0]).unwrap();
+        let mut attrs = HashMap::new();
+        attrs.insert(
+            "pads".to_string(),
+            format!("[{},0,{},0]", i64::MAX, i64::MAX),
+        );
+
+        let error = execute_operator(&OperatorType::Conv, &[input, kernel], &attrs).unwrap_err();
+        assert!(error.to_string().contains("padded height overflows"));
     }
 
     #[test]
@@ -3886,8 +4349,45 @@ mod tests {
         let mut attrs = HashMap::new();
         attrs.insert("pads".to_string(), "[1,2]".to_string()); // Only 2 elements instead of 4
 
-        let result = execute_operator(&OperatorType::Conv, &inputs, &attrs);
-        assert!(result.is_ok());
+        let error = execute_operator(&OperatorType::Conv, &inputs, &attrs).unwrap_err();
+        assert!(error.to_string().contains("Conv pads requires 4 values"));
+    }
+
+    #[test]
+    fn test_conv_op_rejects_unsupported_semantics() {
+        let input = Tensor::from_shape_vec(&[1, 2, 4, 4], vec![1.0; 32]).unwrap();
+        let kernel = Tensor::from_shape_vec(&[2, 2, 3, 3], vec![1.0; 36]).unwrap();
+
+        for (name, value) in [
+            ("group", "2"),
+            ("dilations", "[2,1]"),
+            ("auto_pad", "SAME_UPPER"),
+        ] {
+            let mut attrs = HashMap::new();
+            attrs.insert(name.to_string(), value.to_string());
+            assert!(execute_operator(
+                &OperatorType::Conv,
+                &[input.clone(), kernel.clone()],
+                &attrs,
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn test_maxpool_op_rejects_unsupported_semantics() {
+        let input = Tensor::from_shape_vec(&[1, 1, 4, 4], vec![1.0; 16]).unwrap();
+
+        for (name, value) in [
+            ("dilations", "[2,1]"),
+            ("auto_pad", "SAME_UPPER"),
+            ("ceil_mode", "1"),
+            ("storage_order", "1"),
+        ] {
+            let mut attrs = HashMap::new();
+            attrs.insert(name.to_string(), value.to_string());
+            assert!(execute_operator(&OperatorType::MaxPool, &[input.clone()], &attrs).is_err());
+        }
     }
 
     #[test]
@@ -3897,9 +4397,8 @@ mod tests {
         let bias = Tensor::from_shape_vec(&[3, 3], vec![0.1; 9]).unwrap(); // Wrong shape
         let inputs = vec![input, kernel, bias];
 
-        let result = execute_operator(&OperatorType::Conv, &inputs, &HashMap::new());
-        // Should still work but skip bias addition
-        assert!(result.is_ok());
+        let error = execute_operator(&OperatorType::Conv, &inputs, &HashMap::new()).unwrap_err();
+        assert!(error.to_string().contains("Conv bias shape"));
     }
 
     #[test]
@@ -3948,8 +4447,30 @@ mod tests {
         let mut attrs = HashMap::new();
         attrs.insert("axis".to_string(), "1".to_string());
 
-        let result = execute_operator(&OperatorType::Softmax, &inputs, &attrs);
-        assert!(result.is_ok());
+        let result = execute_operator(&OperatorType::Softmax, &inputs, &attrs).unwrap();
+        for row in 0..2 {
+            let sum: f32 = (0..3).map(|column| result[0].data()[[row, column]]).sum();
+            assert!((sum - 1.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_softmax_op_honors_first_axis_for_matrix() {
+        let tensor = Tensor::from_shape_vec(&[2, 2], vec![0.0, 2.0, 1.0, 4.0]).unwrap();
+        let mut attrs = HashMap::new();
+        attrs.insert("axis".to_string(), "0".to_string());
+
+        let result = execute_operator(&OperatorType::Softmax, &[tensor], &attrs).unwrap();
+        let expected = [
+            1.0 / (1.0 + 1.0f32.exp()),
+            1.0 / (1.0 + 2.0f32.exp()),
+            1.0f32.exp() / (1.0 + 1.0f32.exp()),
+            2.0f32.exp() / (1.0 + 2.0f32.exp()),
+        ];
+
+        for (&actual, expected) in result[0].data().iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-6);
+        }
     }
 
     #[test]
@@ -3978,14 +4499,30 @@ mod tests {
     }
 
     #[test]
+    fn test_gather_op_handles_non_standard_layout() {
+        let array = Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+            .unwrap()
+            .reversed_axes();
+        let data = Tensor::from_array(array);
+        assert!(!data.data().is_standard_layout());
+        let indices = Tensor::from_shape_vec(&[2], vec![2.0, 0.0]).unwrap();
+
+        let result =
+            execute_operator(&OperatorType::Gather, &[data, indices], &HashMap::new()).unwrap();
+
+        assert_eq!(result[0].shape(), &[2, 2]);
+        assert_eq!(result[0].data().as_slice().unwrap(), &[3.0, 6.0, 1.0, 4.0]);
+    }
+
+    #[test]
     fn test_gather_op_out_of_bounds_indices() {
         let data = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        let indices = Tensor::from_shape_vec(&[1], vec![1.0]).unwrap(); // Valid index
+        let indices = Tensor::from_shape_vec(&[1], vec![2.0]).unwrap();
         let inputs = vec![data, indices];
 
         let result = execute_operator(&OperatorType::Gather, &inputs, &HashMap::new());
-        // Gather implementation doesn't validate bounds properly, so it may succeed
-        assert!(result.is_ok() || result.is_err());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
     }
 
     #[test]
@@ -4038,8 +4575,8 @@ mod tests {
         let mut attrs = HashMap::new();
         attrs.insert("mode".to_string(), "reflect".to_string());
 
-        let result = execute_operator(&OperatorType::Pad, &inputs, &attrs);
-        assert!(result.is_ok());
+        let error = execute_operator(&OperatorType::Pad, &inputs, &attrs).unwrap_err();
+        assert!(error.to_string().contains("not implemented"));
     }
 
     #[test]
@@ -4050,8 +4587,8 @@ mod tests {
         let mut attrs = HashMap::new();
         attrs.insert("to".to_string(), "int32".to_string());
 
-        let result = execute_operator(&OperatorType::Cast, &inputs, &attrs);
-        assert!(result.is_ok());
+        let error = execute_operator(&OperatorType::Cast, &inputs, &attrs).unwrap_err();
+        assert!(error.to_string().contains("not supported"));
     }
 
     #[test]
@@ -4062,9 +4599,8 @@ mod tests {
         let mut attrs = HashMap::new();
         attrs.insert("to".to_string(), "complex128".to_string()); // Unsupported
 
-        let result = execute_operator(&OperatorType::Cast, &inputs, &attrs);
-        // Cast is simplified and just returns the input, so it succeeds
-        assert!(result.is_ok());
+        let error = execute_operator(&OperatorType::Cast, &inputs, &attrs).unwrap_err();
+        assert!(error.to_string().contains("not supported"));
     }
 
     #[test]
@@ -4136,8 +4672,9 @@ mod tests {
         attrs.insert("iou_threshold".to_string(), "0.5".to_string());
         attrs.insert("score_threshold".to_string(), "0.1".to_string());
 
-        let result = execute_operator(&OperatorType::NonMaxSuppression, &inputs, &attrs);
-        assert!(result.is_ok());
+        let error =
+            execute_operator(&OperatorType::NonMaxSuppression, &inputs, &attrs).unwrap_err();
+        assert!(error.to_string().contains("not implemented"));
     }
 
     #[test]
@@ -4168,15 +4705,17 @@ mod tests {
 
     #[test]
     fn test_reduce_mean_op_with_axes() {
-        let tensor = Tensor::from_shape_vec(&[2, 3, 4], vec![1.0; 24]).unwrap();
+        let tensor =
+            Tensor::from_shape_vec(&[2, 2, 2], (0..8).map(|value| value as f32).collect()).unwrap();
         let inputs = vec![tensor];
 
         let mut attrs = HashMap::new();
-        attrs.insert("axes".to_string(), "[1,2]".to_string());
-        attrs.insert("keepdims".to_string(), "true".to_string());
+        attrs.insert("axes".to_string(), "[-1]".to_string());
+        attrs.insert("keepdims".to_string(), "0".to_string());
 
-        let result = execute_operator(&OperatorType::ReduceMean, &inputs, &attrs);
-        assert!(result.is_ok());
+        let result = execute_operator(&OperatorType::ReduceMean, &inputs, &attrs).unwrap();
+        assert_eq!(result[0].shape(), &[2, 2]);
+        assert_eq!(result[0].data().as_slice().unwrap(), &[0.5, 2.5, 4.5, 6.5]);
     }
 
     #[test]

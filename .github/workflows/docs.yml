@@ -27,7 +27,7 @@ jobs:
     - name: Install Protocol Buffers compiler
       run: |
         sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
+        sudo apt-get install -y protobuf-compiler libopenblas-dev
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable

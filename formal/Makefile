@@ -18,17 +18,17 @@ verify-operator-%: check-why3
 # Verify extended operators (new additions)
 verify-extended: check-why3
 	@echo "🔍 Verifying extended operator set..."
-	@for op in div sub exp sqrt pow identity cast squeeze unsqueeze reduce_mean batch_norm; do \
+	@set -e; for op in div sub exp sqrt pow identity cast squeeze unsqueeze reduce_mean batch_norm; do \
 		echo "🎯 Verifying $$op operator..."; \
-		python3 verify_operators.py $$op || echo "⚠️ $$op verification had issues"; \
+		python3 verify_operators.py $$op; \
 	done
 
 # Verify core operators only (original set)
 verify-core: check-why3
 	@echo "🔍 Verifying core operator set..."
-	@for op in add mul matmul relu sigmoid transpose reshape; do \
+	@set -e; for op in add mul matmul relu sigmoid transpose reshape; do \
 		echo "🎯 Verifying $$op operator..."; \
-		python3 verify_operators.py $$op || echo "⚠️ $$op verification had issues"; \
+		python3 verify_operators.py $$op; \
 	done
 
 # Test the formal verification setup
@@ -40,9 +40,9 @@ test-setup:
 setup-provers:
 	@echo "🔧 Setting up Why3 provers..."
 	@if which why3 > /dev/null; then \
-		why3 config detect || echo "⚠️ Could not auto-detect provers"; \
+		why3 config detect; \
 		echo "Available provers:"; \
-		why3 config list-provers || echo "⚠️ Could not list provers"; \
+		why3 config list-provers; \
 	else \
 		echo "❌ Why3 not found. Run 'make install-why3' first."; \
 		exit 1; \
@@ -70,13 +70,13 @@ install-why3:
 verify: check-why3
 	@echo "🔍 Running formal verification..."
 	@echo "Detecting available provers..."
-	@why3 config detect || echo "⚠️ Could not detect provers"
+	@why3 config detect
 	@echo "Available provers:"
-	@why3 config list-provers || echo "⚠️ Could not list provers"
+	@why3 config list-provers
 	@echo "Verifying tensor specifications..."
-	@why3 prove tensors.mlw || echo "⚠️ Some tensor proofs failed"
+	@why3 prove tensors.mlw
 	@echo "Verifying operator specifications..."
-	@why3 prove operators.mlw || echo "⚠️ Some operator proofs failed"
+	@why3 prove operators.mlw
 	@echo "✅ Formal verification completed"
 
 # Run property-based tests

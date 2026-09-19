@@ -1,10 +1,12 @@
 # Quick Start Guide
 
-Get up and running with RunNX in just a few minutes! This guide will walk you through the basics of using RunNX for ONNX model inference, including the powerful YOLOv8 object detection capabilities.
+Get up and running with RunNX in just a few minutes. This guide covers the
+supported ONNX inference subset and shows how to inspect broader models for
+compatibility, including YOLOv8 exports.
 
 ## Prerequisites
 
-RunNX requires the Protocol Buffers compiler (`protoc`) to build. Install it for your platform:
+RunNX uses checked-in ONNX protobuf bindings, so `protoc` is not required for a normal build. Install it only when regenerating bindings:
 
 ### Ubuntu/Debian
 ```bash
@@ -29,7 +31,7 @@ Add RunNX to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-runnx = "0.2.1"
+runnx = "0.3.1"
 ```
 
 ### From Source
@@ -86,7 +88,7 @@ cargo run --example yolov8_detect_and_draw
 - ✅ **Model compatibility**: Works with various ONNX model architectures
 - ✅ **Complete pipeline**: Load, preprocess, infer, post-process, visualize  
 - ✅ **Performance**: Real-time inference with timing information
-- ✅ **Production ready**: Comprehensive error handling and logging
+- ✅ **Observable execution**: Structured errors, logging, and timing information
 
 ### Format Support
 

@@ -156,22 +156,82 @@ impl Graph {
     /// Validate the graph structure
     ///
     /// Checks for:
-    /// - Duplicate node names
+    /// - Duplicate non-empty node names
+    /// - Duplicate graph input/output names and tensor producers
     /// - References to tensors not produced by any node or input/initializer
     /// - Invalid operator types
     /// - Graph outputs that are never produced
-    ///
-    /// Node ordering does not matter here; cycle detection is handled separately
-    /// by [`Graph::topological_sort`].
+    /// - Cycles
     pub fn validate(&self) -> Result<()> {
-        // Check for duplicate node names
+        // ONNX node names are optional, but any names that are present must be unique.
         let mut node_names = std::collections::HashSet::new();
         for node in &self.nodes {
-            if !node_names.insert(&node.name) {
+            if !node.name.is_empty() && !node_names.insert(&node.name) {
                 return Err(OnnxError::graph_validation_error(format!(
                     "Duplicate node name: {}",
                     node.name
                 )));
+            }
+        }
+
+        let mut input_names = std::collections::HashSet::new();
+        for input in &self.inputs {
+            if input.name.is_empty() {
+                return Err(OnnxError::graph_validation_error(
+                    "Graph input names cannot be empty".to_string(),
+                ));
+            }
+            if !input_names.insert(input.name.as_str()) {
+                return Err(OnnxError::graph_validation_error(format!(
+                    "Duplicate graph input name: {}",
+                    input.name
+                )));
+            }
+        }
+
+        let mut output_names = std::collections::HashSet::new();
+        for output in &self.outputs {
+            if output.name.is_empty() {
+                return Err(OnnxError::graph_validation_error(
+                    "Graph output names cannot be empty".to_string(),
+                ));
+            }
+            if !output_names.insert(output.name.as_str()) {
+                return Err(OnnxError::graph_validation_error(format!(
+                    "Duplicate graph output name: {}",
+                    output.name
+                )));
+            }
+        }
+
+        let mut produced_tensors: std::collections::HashMap<&str, &str> =
+            std::collections::HashMap::new();
+        for node in &self.nodes {
+            if node.inputs.iter().any(String::is_empty) {
+                return Err(OnnxError::graph_validation_error(format!(
+                    "Node '{}' contains an empty input name",
+                    node.name
+                )));
+            }
+            for output in &node.outputs {
+                if output.is_empty() {
+                    return Err(OnnxError::graph_validation_error(format!(
+                        "Node '{}' contains an empty output name",
+                        node.name
+                    )));
+                }
+                if input_names.contains(output.as_str()) || self.initializers.contains_key(output) {
+                    return Err(OnnxError::graph_validation_error(format!(
+                        "Node '{}' output '{}' conflicts with a graph input or initializer",
+                        node.name, output
+                    )));
+                }
+                if let Some(previous_node) = produced_tensors.insert(output, &node.name) {
+                    return Err(OnnxError::graph_validation_error(format!(
+                        "Tensor '{}' is produced by both '{}' and '{}'",
+                        output, previous_node, node.name
+                    )));
+                }
             }
         }
 
@@ -185,6 +245,11 @@ impl Graph {
             available_tensors.insert(&input.name);
         }
         for name in self.initializers.keys() {
+            if name.is_empty() {
+                return Err(OnnxError::graph_validation_error(
+                    "Initializer names cannot be empty".to_string(),
+                ));
+            }
             available_tensors.insert(name);
         }
         for node in &self.nodes {
@@ -221,6 +286,8 @@ impl Graph {
                 )));
             }
         }
+
+        self.topological_sort()?;
 
         Ok(())
     }
@@ -658,6 +725,85 @@ mod tests {
         graph.add_node(node);
 
         assert!(graph.validate().is_err());
+    }
+
+    #[test]
+    fn test_graph_validation_allows_unnamed_nodes() {
+        let mut graph = Graph::new("unnamed_nodes".to_string());
+        graph.add_input(TensorSpec::new("input".to_string(), vec![Some(1)]));
+        graph.add_output(TensorSpec::new("output".to_string(), vec![Some(1)]));
+        graph.add_node(Node::new(
+            String::new(),
+            "Relu".to_string(),
+            vec!["input".to_string()],
+            vec!["intermediate".to_string()],
+        ));
+        graph.add_node(Node::new(
+            String::new(),
+            "Sigmoid".to_string(),
+            vec!["intermediate".to_string()],
+            vec!["output".to_string()],
+        ));
+
+        assert!(graph.validate().is_ok());
+    }
+
+    #[test]
+    fn test_graph_validation_rejects_duplicate_tensor_producers() {
+        let mut graph = Graph::new("duplicate_producers".to_string());
+        graph.add_input(TensorSpec::new("input".to_string(), vec![Some(1)]));
+        graph.add_output(TensorSpec::new("output".to_string(), vec![Some(1)]));
+        graph.add_node(Node::new(
+            "first".to_string(),
+            "Relu".to_string(),
+            vec!["input".to_string()],
+            vec!["output".to_string()],
+        ));
+        graph.add_node(Node::new(
+            "second".to_string(),
+            "Sigmoid".to_string(),
+            vec!["input".to_string()],
+            vec!["output".to_string()],
+        ));
+
+        let error = graph.validate().unwrap_err();
+        assert!(error.to_string().contains("produced by both"));
+    }
+
+    #[test]
+    fn test_graph_validation_rejects_cycles() {
+        let mut graph = Graph::new("cycle".to_string());
+        graph.add_output(TensorSpec::new("a".to_string(), vec![Some(1)]));
+        graph.add_node(Node::new(
+            "first".to_string(),
+            "Relu".to_string(),
+            vec!["b".to_string()],
+            vec!["a".to_string()],
+        ));
+        graph.add_node(Node::new(
+            "second".to_string(),
+            "Sigmoid".to_string(),
+            vec!["a".to_string()],
+            vec!["b".to_string()],
+        ));
+
+        let error = graph.validate().unwrap_err();
+        assert!(error.to_string().contains("cycles"));
+    }
+
+    #[test]
+    fn test_graph_validation_rejects_empty_tensor_names() {
+        let mut graph = Graph::new("empty_tensor_name".to_string());
+        graph.add_input(TensorSpec::new("input".to_string(), vec![Some(1)]));
+        graph.add_node(Node::new(
+            "relu".to_string(),
+            "Relu".to_string(),
+            vec!["input".to_string()],
+            vec![String::new()],
+        ));
+
+        let error = graph.validate().unwrap_err();
+        assert!(error.to_string().contains("empty output name"));
     }
 
     #[test]

@@ -9,11 +9,9 @@ A minimal, **mathematically verifiable** ONNX runtime implementation in Rust.
 [![Formal Verification](https://github.com/jgalego/runnx/actions/workflows/formal-verification.yml/badge.svg)](https://github.com/jgalego/runnx/actions/workflows/formal-verification.yml)
 [![codecov](https://codecov.io/gh/jgalego/runnx/branch/main/graph/badge.svg)](https://codecov.io/gh/jgalego/runnx)
 
-![RunNX](assets/runnx.jpg)
-
 ## Overview
 
-> Fast, fearless, and **formally verified** ONNX in Rust.
+> A compact ONNX runtime with formal specifications and property-based validation.
 
 This project provides a minimal, educational ONNX runtime implementation focused on:
 - **Simplicity**: Easy to understand and modify
@@ -29,13 +27,12 @@ This project provides a minimal, educational ONNX runtime implementation focused
   - DOT format export for publication-quality diagrams (PNG, SVG, PDF)
   - CLI integration with `--graph` and `--dot` options
   - Topological sorting and cycle detection
-- ✅ **Comprehensive Operator Support**: Wide range of ONNX operators for various model types
+- ✅ **Focused Operator Support**: A tested subset of common ONNX operators
   - **Core Operations**: `Add`, `Mul`, `MatMul`, `Conv`, `Relu`, `Sigmoid`, `Reshape`, `Transpose`
-  - **Advanced Operations**: `Concat`, `Slice`, `Upsample`, `MaxPool`, `Softmax`, `NonMaxSuppression`
-  - **Computer Vision**: Support for CNN architectures and object detection models
-  - **Tested Compatibility**: Validated with real-world models including YOLOv8
+    - **Advanced Operations**: `Concat`, `Slice`, `MaxPool`, `Softmax`, `ReduceMean`, and constrained `Resize`
+    - **Computer Vision**: 2D NCHW convolution and pooling with optional im2col, naive, and BLAS backends
 - ✅ **Formal Verification**: Mathematical specifications with Why3 and property-based testing
-- ✅ **Production Ready Features**:
+- ✅ **Runtime and Tooling Features**:
   - Model loading and validation with comprehensive error handling
   - Async support for high-throughput inference
   - Benchmarking and performance monitoring
@@ -46,7 +43,8 @@ This project provides a minimal, educational ONNX runtime implementation focused
 
 ### Prerequisites
 
-RunNX requires the Protocol Buffers compiler (`protoc`) to build:
+RunNX builds with the checked-in ONNX protobuf bindings. The Protocol Buffers
+compiler (`protoc`) is only required when regenerating those bindings:
 
 ```bash
 # Ubuntu/Debian
@@ -59,19 +57,26 @@ brew install protobuf
 choco install protoc
 ```
 
+After initializing the ONNX submodule, regenerate bindings with:
+
+```bash
+RUNNX_REGENERATE_ONNX_PROTO=1 cargo build
+```
+
 ### Installation
 
 Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-runnx = "0.2.1"
+runnx = "0.3.1"
 ```
 
 ### Basic Usage
 
 ```rust
 use runnx::{Model, Tensor};
+use std::collections::HashMap;
 
 // Load a model (supports both JSON and ONNX binary formats)  
 let model = Model::from_file("model.onnx")?;  // Auto-detects format
@@ -83,7 +88,9 @@ let model = Model::from_file("model.onnx")?;  // Auto-detects format
 let input = Tensor::from_array(ndarray::array![[1.0, 2.0, 3.0]]);
 
 // Run inference
-let outputs = model.run(&[("input", input)])?;
+let mut inputs = HashMap::new();
+inputs.insert("input".to_string(), input);
+let outputs = model.run(&inputs)?;
 
 // Get results
 let result = outputs.get("output").unwrap();
@@ -92,18 +99,15 @@ println!("Result: {:?}", result.data());
 
 ### Computer Vision Example
 
-RunNX supports various computer vision models. Here's an example with object detection:
+RunNX includes computer-vision examples for testing model compatibility and preprocessing:
 
-```rust
-use runnx::Model;
-
-// Load any compatible ONNX model (e.g., classification, detection, segmentation)
-let model = Model::from_file("vision_model.onnx")?;
-
-// For object detection models like YOLOv8, RCNN, etc.
-// The runtime handles various operator types automatically
-cargo run --example yolov8_detect_and_draw  // YOLOv8 detection example
+```bash
+cargo run --example yolov8_detect_and_draw
 ```
+
+These examples require external model/image assets. Complete YOLO graphs may use
+operators or signatures outside RunNX's supported subset; see
+[Known Limitations](#known-limitations).
 
 ### Saving Models
 
@@ -247,9 +251,8 @@ The DOT format generates clean, professional diagrams with:
 - **Red ellipses** for output tensors
 - **Directed arrows** showing data flow
 
-![Complex Neural Network Graph](assets/complex_graph.png)
-
-*Example: Multi-task neural network with classification and segmentation branches*
+See [`assets/complex_graph.dot`](assets/complex_graph.dot) for a complete graph
+that can be rendered locally with Graphviz.
 
 #### DOT Format Output
 
@@ -374,18 +377,29 @@ For explicit control, use:
 | -------------------- | -------- | ------------------------------------ |
 | `Concat`             | ✅      | Tensor concatenation                 |
 | `Slice`              | ✅      | Tensor slicing operations            |
-| `Upsample`           | ✅      | Feature map upsampling               |
-| `MaxPool`            | ✅      | Max pooling operations               |
-| `Softmax`            | ✅      | Softmax normalization                |
-| `NonMaxSuppression`  | ✅      | Non-maximum suppression              |
+| `Resize`             | 🚧      | Nearest-neighbor, 4D NCHW, spatial scales only |
+| `Pad`                | 🚧      | Constant mode only                   |
+| `Cast`               | 🚧      | Float32 target only                  |
+| `Upsample`           | ❌      | Returns an explicit unsupported-operation error |
+| `MaxPool`            | ✅      | 2D NCHW max pooling                  |
+| `Softmax`            | ✅      | Normalization along any valid axis   |
+| `NonMaxSuppression`  | ❌      | Returns an explicit unsupported-operation error |
 
 *Legend: ✅ = Fully implemented, 🚧 = In development, ❌ = Not implemented*
 
-**Model Compatibility**: These operators enable support for various model architectures including:
-- **Computer Vision**: CNNs, ResNet, EfficientNet, Vision Transformers
-- **Object Detection**: YOLO family (YOLOv8, YOLOv5), R-CNN variants, SSD
-- **Classification**: Image classifiers and feature extractors
-- **Custom Models**: Any ONNX model using the supported operator set
+**Model Compatibility**: RunNX can execute models whose operators, data types,
+attributes, and optional-input signatures fit the supported subset above.
+
+### Known Limitations
+
+- Tensors are represented internally as `f32`; general ONNX type preservation and casting are not implemented.
+- `Conv` currently targets 2D NCHW inference with `group = 1`, unit dilation,
+    and explicit or zero padding; `auto_pad` modes are rejected.
+- `MaxPool` currently targets 2D NCHW inference with unit dilation, floor output
+    sizing, row-major storage order, and explicit or zero padding.
+- `Resize` supports nearest-neighbor spatial scaling through the constrained signature documented above.
+- Interior omitted optional ONNX inputs are rejected because the current runtime API cannot preserve positional holes.
+- `Upsample` and `NonMaxSuppression` are recognized but intentionally return unsupported-operation errors.
 
 ## Examples
 
@@ -959,13 +973,14 @@ This project is licensed under
 - [x] **Auto-detection**: Automatic format detection based on file extension  
 - [x] **Graph Visualization**: Terminal ASCII art and professional Graphviz export
 - [x] **Core Operators**: Add, Mul, MatMul, Conv, ReLU, Sigmoid, Reshape, Transpose
-- [x] **YOLO Operators**: Concat, Slice, Upsample, MaxPool, Softmax, NonMaxSuppression
+- [x] **Computer Vision Primitives**: Conv, Concat, Slice, MaxPool, Softmax, and constrained Resize
 - [x] **Formal Verification**: Mathematical specifications with Why3
 - [x] **CLI Tool**: Command-line runner with visualization capabilities
 
 ### 🚧 In Progress
 - [ ] **Performance Optimizations**: GPU acceleration and SIMD vectorization
 - [ ] **Extended ONNX Support**: Additional operators (BatchNorm, LayerNorm, etc.)
+- [ ] **Object Detection Completion**: Upsample and NonMaxSuppression execution
 - [ ] **Quantization**: INT8 and FP16 model support
 - [ ] **Model Optimization**: Graph optimization passes and operator fusion
 
@@ -980,7 +995,7 @@ This project is licensed under
 
 ### 📚 Additional Resources
 
-- **[Release Notes](CHANGELOG.md#021---2025-09-01)** - What's new in the latest version (v0.2.1)
+- **[Release Notes](RELEASE_NOTES_0.3.1.md)** - What's new in v0.3.1
 - **[Complete Changelog](CHANGELOG.md)** - Full history of changes
 - **[Release History](docs/releases/)** - All previous release notes
 - **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to RunNX

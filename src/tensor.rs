@@ -373,7 +373,13 @@ impl Tensor {
     /// assert_eq!(reshaped.shape(), &[3, 2]);
     /// ```
     pub fn reshape(&self, new_shape: &[usize]) -> Result<Tensor> {
-        let new_len: usize = new_shape.iter().product();
+        let new_len = new_shape.iter().try_fold(1usize, |length, &dimension| {
+            length.checked_mul(dimension).ok_or_else(|| {
+                OnnxError::invalid_dimensions(format!(
+                    "Cannot reshape tensor: shape {new_shape:?} overflows usize"
+                ))
+            })
+        })?;
         if new_len != self.len() {
             return Err(OnnxError::invalid_dimensions(format!(
                 "Cannot reshape tensor with {} elements to shape {:?} ({} elements)",
@@ -540,16 +546,46 @@ impl Tensor {
         }
 
         let num = starts.len();
+        let rank = i64::try_from(self.ndim()).map_err(|_| {
+            OnnxError::invalid_dimensions("Tensor rank exceeds the supported i64 range")
+        })?;
         let axes_vec: Vec<usize> = if let Some(ax) = axes {
             if ax.len() != num {
                 return Err(OnnxError::invalid_dimensions(
                     "Axes length must match starts/ends length",
                 ));
             }
-            ax.iter().map(|&a| a as usize).collect()
+            ax.iter()
+                .map(|&axis| {
+                    if axis < -rank || axis >= rank {
+                        return Err(OnnxError::invalid_dimensions(format!(
+                            "Axis {axis} out of bounds for tensor with {} dimensions",
+                            self.ndim()
+                        )));
+                    }
+                    Ok(if axis < 0 {
+                        (rank + axis) as usize
+                    } else {
+                        axis as usize
+                    })
+                })
+                .collect::<Result<_>>()?
         } else {
+            if num > self.ndim() {
+                return Err(OnnxError::invalid_dimensions(format!(
+                    "Slice specifies {num} axes for a tensor with {} dimensions",
+                    self.ndim()
+                )));
+            }
             (0..num).collect()
         };
+
+        let mut unique_axes = std::collections::HashSet::new();
+        if axes_vec.iter().any(|axis| !unique_axes.insert(*axis)) {
+            return Err(OnnxError::invalid_dimensions(
+                "Slice axes must be unique".to_string(),
+            ));
+        }
 
         let steps_vec: Vec<i64> = if let Some(st) = steps {
             if st.len() != num {
@@ -574,35 +610,43 @@ impl Tensor {
                 )));
             }
 
-            let dim = result.shape()[axis] as i64;
             if step == 0 {
                 return Err(OnnxError::invalid_dimensions("Step value cannot be zero"));
             }
-
-            let mut s = start;
-            let mut e = end;
-            if s < 0 {
-                s += dim;
-            }
-            if e < 0 {
-                e += dim;
-            }
-            // Handle special case where e is i64::MAX or very large (means "end of dimension")
-            if e >= dim || e == i64::MAX {
-                e = dim;
-            }
-            if s < 0 || e > dim || s >= e {
-                return Err(OnnxError::invalid_dimensions(format!(
-                    "Invalid slice range: {s}..{e} for axis {axis}",
-                )));
-            }
-
-            let slice = ndarray::Slice {
-                start: s as isize,
-                end: Some(e as isize),
-                step: step as isize,
+            let dimension = result.shape()[axis] as i128;
+            let step = i128::from(step);
+            let normalize = |index: i64| {
+                let index = i128::from(index);
+                if index < 0 {
+                    index + dimension
+                } else {
+                    index
+                }
             };
-            result = result.slice_axis(ndarray::Axis(axis), slice).to_owned();
+
+            let mut indices = Vec::new();
+            if step > 0 {
+                let mut current = normalize(start).clamp(0, dimension);
+                let end = normalize(end).clamp(0, dimension);
+                while current < end {
+                    indices.push(current as usize);
+                    current += step;
+                }
+            } else {
+                let upper_bound = dimension - 1;
+                let mut current = normalize(start).clamp(-1, upper_bound);
+                let end = if end == i64::MIN {
+                    -1
+                } else {
+                    normalize(end).clamp(-1, upper_bound)
+                };
+                while current > end {
+                    indices.push(current as usize);
+                    current += step;
+                }
+            }
+
+            result = result.select(ndarray::Axis(axis), &indices);
         }
 
         Ok(Tensor {
@@ -627,18 +671,21 @@ impl Tensor {
     /// }
     /// ```
     pub fn relu(&self) -> Result<Tensor> {
-        // Check for non-finite values that could cause numerical issues
-        if !self.data.iter().all(|&x| x.is_finite()) {
-            return Err(OnnxError::invalid_dimensions(
-                "Input contains non-finite values (NaN or Inf)".to_string(),
-            ));
-        }
-
         let mut out = self.data.as_ref().clone();
-        if let Some(s) = out.as_slice_mut() {
-            crate::simd::relu(s);
+        if self.data.iter().all(|value| value.is_finite()) {
+            if let Some(slice) = out.as_slice_mut() {
+                crate::simd::relu(slice);
+            } else {
+                out.mapv_inplace(|value| value.max(0.0));
+            }
         } else {
-            out.mapv_inplace(|x| x.max(0.0));
+            out.mapv_inplace(|value| {
+                if value.is_nan() {
+                    value
+                } else {
+                    value.max(0.0)
+                }
+            });
         }
         Ok(Tensor {
             data: Arc::new(out),
@@ -663,20 +710,28 @@ impl Tensor {
     /// assert!((result.data()[0] - 0.5).abs() < 1e-6);
     /// ```
     pub fn sigmoid(&self) -> Result<Tensor> {
-        // Check for non-finite values
-        if !self.data.iter().all(|&x| x.is_finite()) {
-            return Err(OnnxError::invalid_dimensions(
-                "Input contains non-finite values (NaN or Inf)".to_string(),
-            ));
-        }
-
         let mut out = self.data.as_ref().clone();
-        if let Some(s) = out.as_slice_mut() {
-            crate::simd::sigmoid(s);
+        if self.data.iter().all(|value| value.is_finite()) {
+            if let Some(slice) = out.as_slice_mut() {
+                crate::simd::sigmoid(slice);
+            } else {
+                out.mapv_inplace(|value| {
+                    if value >= 0.0 {
+                        1.0 / (1.0 + (-value).exp())
+                    } else {
+                        let exp_value = value.exp();
+                        exp_value / (1.0 + exp_value)
+                    }
+                });
+            }
         } else {
-            out.mapv_inplace(|x| {
-                let clamped = x.clamp(-88.0, 88.0);
-                1.0 / (1.0 + (-clamped).exp())
+            out.mapv_inplace(|value| {
+                if value >= 0.0 {
+                    1.0 / (1.0 + (-value).exp())
+                } else {
+                    let exp_value = value.exp();
+                    exp_value / (1.0 + exp_value)
+                }
             });
         }
         Ok(Tensor {
@@ -770,10 +825,6 @@ impl Tensor {
             ));
         }
 
-        if tensors.len() == 1 {
-            return Ok(tensors[0].clone());
-        }
-
         let first = tensors[0];
         if axis >= first.ndim() {
             return Err(OnnxError::invalid_dimensions(format!(
@@ -781,6 +832,10 @@ impl Tensor {
                 axis,
                 first.ndim()
             )));
+        }
+
+        if tensors.len() == 1 {
+            return Ok(first.clone());
         }
 
         // Check that all tensors have compatible shapes
@@ -1108,6 +1163,14 @@ mod tests {
     }
 
     #[test]
+    fn test_reshape_rejects_dimension_product_overflow() {
+        let tensor = Tensor::from_shape_vec(&[1], vec![1.0]).unwrap();
+
+        let error = tensor.reshape(&[usize::MAX, 2]).unwrap_err();
+        assert!(error.to_string().contains("overflows usize"));
+    }
+
+    #[test]
     fn test_transpose() {
         let tensor = Tensor::from_shape_vec(&[2, 3], vec![1., 2., 3., 4., 5., 6.]).unwrap();
         let transposed = tensor.transpose().unwrap();
@@ -1222,6 +1285,25 @@ mod tests {
         assert!(data[0] < 0.01);
         // Sigmoid of large positive should be close to 1
         assert!(data[1] > 0.99);
+    }
+
+    #[test]
+    fn test_activations_handle_non_finite_values() {
+        let tensor =
+            Tensor::from_shape_vec(&[4], vec![f32::NEG_INFINITY, f32::INFINITY, f32::NAN, -1.0])
+                .unwrap();
+
+        let relu = tensor.relu().unwrap();
+        assert_eq!(relu.data()[0], 0.0);
+        assert_eq!(relu.data()[1], f32::INFINITY);
+        assert!(relu.data()[2].is_nan());
+        assert_eq!(relu.data()[3], 0.0);
+
+        let sigmoid = tensor.sigmoid().unwrap();
+        assert_eq!(sigmoid.data()[0], 0.0);
+        assert_eq!(sigmoid.data()[1], 1.0);
+        assert!(sigmoid.data()[2].is_nan());
+        assert!(sigmoid.data()[3] > 0.0 && sigmoid.data()[3] < 0.5);
     }
 
     #[test]
@@ -1396,11 +1478,10 @@ mod tests {
             .to_string()
             .contains("empty tensor list"));
 
-        // Test axis out of bounds - with single tensor, concat returns the tensor itself
+        // Axis validation applies to the single-tensor fast path.
         let a = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
         let result = Tensor::concat(&[&a], 5);
-        // Single tensor concat with out-of-bounds axis still works (returns the single tensor)
-        assert!(result.is_ok());
+        assert!(result.is_err());
 
         // Test mismatched dimensions (different number of dimensions)
         let a = Tensor::from_shape_vec(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
@@ -1471,12 +1552,12 @@ mod tests {
     fn test_slice_edge_cases() {
         let tensor = Tensor::from_shape_vec(&[4, 3], vec![1.0; 12]).unwrap();
 
-        // Test slice validation - these cases fail as expected
-        let result = tensor.slice(&[5, 0], &[6, 2], None, None); // Start out of bounds
-        assert!(result.is_err());
+        // Out-of-range and reversed positive ranges clamp to empty slices.
+        let result = tensor.slice(&[5, 0], &[6, 2], None, None).unwrap();
+        assert_eq!(result.shape(), &[0, 2]);
 
-        let result = tensor.slice(&[2, 0], &[1, 2], None, None); // Start > end
-        assert!(result.is_err());
+        let result = tensor.slice(&[2, 0], &[1, 2], None, None).unwrap();
+        assert_eq!(result.shape(), &[0, 2]);
 
         // Test cases that work
         let result = tensor.slice(&[0, 0], &[2, 5], None, None); // End out of bounds is handled gracefully
@@ -1484,5 +1565,18 @@ mod tests {
 
         let result = tensor.slice(&[0, 0], &[2, 2], None, None); // Valid slice
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_slice_negative_step_and_axis() {
+        let tensor = Tensor::from_shape_vec(&[5], vec![0.0, 1.0, 2.0, 3.0, 4.0]).unwrap();
+
+        let result = tensor
+            .slice(&[-1], &[i64::MIN], Some(&[-1]), Some(&[-1]))
+            .unwrap();
+        assert_eq!(
+            result.data().as_slice().unwrap(),
+            &[4.0, 3.0, 2.0, 1.0, 0.0]
+        );
     }
 }

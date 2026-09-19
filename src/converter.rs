@@ -26,10 +26,12 @@ pub fn from_model_proto(model_proto: &proto::ModelProto) -> Result<Model> {
 
     let metadata = ModelMetadata {
         name: graph_proto.name.clone().unwrap_or_default(),
-        version: model_proto
-            .model_version
-            .map(|v| v.to_string())
-            .unwrap_or_default(),
+        version: model_proto.producer_version.clone().unwrap_or_else(|| {
+            model_proto
+                .model_version
+                .map(|version| version.to_string())
+                .unwrap_or_default()
+        }),
         description: model_proto.doc_string.clone().unwrap_or_default(),
         producer: model_proto.producer_name.clone().unwrap_or_default(),
         onnx_version: format!("IR_VERSION_{}", model_proto.ir_version.unwrap_or(0)),
@@ -66,8 +68,17 @@ pub fn from_graph_proto(graph_proto: &proto::GraphProto) -> Result<Graph> {
     let mut initializers = HashMap::new();
     for tensor_proto in &graph_proto.initializer {
         let name = tensor_proto.name.clone().unwrap_or_default();
+        if name.is_empty() {
+            return Err(OnnxError::model_load_error(
+                "Graph initializer name cannot be empty",
+            ));
+        }
         let tensor = from_tensor_proto(tensor_proto)?;
-        initializers.insert(name, tensor);
+        if initializers.insert(name.clone(), tensor).is_some() {
+            return Err(OnnxError::model_load_error(format!(
+                "Duplicate graph initializer name: {name}"
+            )));
+        }
     }
 
     Ok(Graph {
@@ -81,19 +92,29 @@ pub fn from_graph_proto(graph_proto: &proto::GraphProto) -> Result<Graph> {
 
 /// Convert ONNX protobuf NodeProto to internal Node representation
 pub fn from_node_proto(node_proto: &proto::NodeProto) -> Result<Node> {
-    // Filter out empty string inputs (optional inputs in ONNX)
-    let inputs: Vec<String> = node_proto
-        .input
-        .iter()
-        .filter(|input| !input.is_empty())
-        .cloned()
-        .collect();
+    let node_name = node_proto.name.as_deref().unwrap_or("<unnamed>");
+    let trim_optional_slots = |values: &[String], kind: &str| -> Result<Vec<String>> {
+        let Some(last_value) = values.iter().rposition(|value| !value.is_empty()) else {
+            return Ok(Vec::new());
+        };
+        if let Some(position) = values[..=last_value].iter().position(String::is_empty) {
+            return Err(OnnxError::model_load_error(format!(
+                "Node '{node_name}' has an omitted optional {kind} at position {position} followed by another {kind}; this signature is not supported"
+            )));
+        }
+        Ok(values[..=last_value].to_vec())
+    };
+
+    // Trailing empty strings denote omitted optional values and are safe to trim.
+    let inputs = trim_optional_slots(&node_proto.input, "input")?;
+
+    let outputs = trim_optional_slots(&node_proto.output, "output")?;
 
     let mut node = Node::new(
         node_proto.name.clone().unwrap_or_default(),
         node_proto.op_type.clone().unwrap_or_default(),
         inputs,
-        node_proto.output.clone(),
+        outputs,
     );
 
     // Convert attributes
@@ -130,7 +151,13 @@ pub fn from_value_info_proto(value_info_proto: &proto::ValueInfoProto) -> Result
         for dim in &shape_proto.dim {
             match &dim.value {
                 Some(proto::tensor_shape_proto::dimension::Value::DimValue(dim_value)) => {
-                    dimensions.push(Some(*dim_value as usize));
+                    let dimension = usize::try_from(*dim_value).map_err(|_| {
+                        OnnxError::model_load_error(format!(
+                            "Tensor '{}' has negative dimension {}",
+                            name, dim_value
+                        ))
+                    })?;
+                    dimensions.push(Some(dimension));
                 }
                 Some(proto::tensor_shape_proto::dimension::Value::DimParam(_)) => {
                     // Handle symbolic dimensions as None (dynamic)
@@ -168,7 +195,19 @@ pub fn from_value_info_proto(value_info_proto: &proto::ValueInfoProto) -> Result
 /// Convert ONNX protobuf TensorProto to internal Tensor representation
 pub fn from_tensor_proto(tensor_proto: &proto::TensorProto) -> Result<Tensor> {
     // Extract shape
-    let shape: Vec<usize> = tensor_proto.dims.iter().map(|&dim| dim as usize).collect();
+    let shape: Vec<usize> = tensor_proto
+        .dims
+        .iter()
+        .map(|&dim| {
+            usize::try_from(dim).map_err(|_| {
+                OnnxError::model_load_error(format!(
+                    "Tensor '{}' has negative dimension {}",
+                    tensor_proto.name.as_deref().unwrap_or("<unnamed>"),
+                    dim
+                ))
+            })
+        })
+        .collect::<Result<_>>()?;
 
     // Convert data based on type
     let data_type = proto::tensor_proto::DataType::try_from(tensor_proto.data_type.unwrap_or(0))
@@ -280,14 +319,95 @@ pub fn from_attribute_proto(attr_proto: &proto::AttributeProto) -> Result<String
     } else if let Some(i) = attr_proto.i {
         Ok(i.to_string())
     } else if let Some(f) = attr_proto.f {
-        Ok(f.to_string())
+        Ok(format!("{f:?}"))
     } else if !attr_proto.ints.is_empty() {
         Ok(format!("{:?}", attr_proto.ints))
     } else if !attr_proto.floats.is_empty() {
         Ok(format!("{:?}", attr_proto.floats))
+    } else if let Some(tensor_proto) = &attr_proto.t {
+        let tensor = from_tensor_proto(tensor_proto)?;
+        if tensor.len() != 1 {
+            return Err(OnnxError::unsupported_operation(format!(
+                "Tensor attribute '{}' must contain exactly one value",
+                attr_proto.name.as_deref().unwrap_or("<unnamed>")
+            )));
+        }
+        let value = tensor.data().iter().next().ok_or_else(|| {
+            OnnxError::model_load_error("Scalar tensor attribute unexpectedly contained no data")
+        })?;
+        Ok(format!("{value:?}"))
     } else {
         Ok(String::new())
     }
+}
+
+fn to_attribute_proto(op_type: &str, name: &str, value: &str) -> Result<proto::AttributeProto> {
+    use proto::attribute_proto::AttributeType;
+
+    let mut attribute = proto::AttributeProto {
+        name: Some(name.to_string()),
+        ..Default::default()
+    };
+    let trimmed = value.trim();
+
+    if op_type == "ConstantOfShape" && name == "value" {
+        let scalar = trimmed.parse::<f32>().map_err(|error| {
+            OnnxError::invalid_dimensions(format!(
+                "ConstantOfShape value attribute '{value}' is invalid: {error}"
+            ))
+        })?;
+        attribute.r#type = Some(AttributeType::Tensor as i32);
+        attribute.t = Some(proto::TensorProto {
+            dims: vec![1],
+            data_type: Some(proto::tensor_proto::DataType::Float as i32),
+            float_data: vec![scalar],
+            ..Default::default()
+        });
+        return Ok(attribute);
+    }
+
+    if trimmed.starts_with('[') && trimmed.ends_with(']') {
+        let contents = &trimmed[1..trimmed.len() - 1];
+        let parts: Vec<&str> = contents
+            .split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .collect();
+        if let Some(ints) = parts
+            .iter()
+            .map(|part| part.parse::<i64>().ok())
+            .collect::<Option<Vec<_>>>()
+        {
+            attribute.r#type = Some(AttributeType::Ints as i32);
+            attribute.ints = ints;
+            return Ok(attribute);
+        }
+        if let Some(floats) = parts
+            .iter()
+            .map(|part| part.parse::<f32>().ok())
+            .collect::<Option<Vec<_>>>()
+        {
+            attribute.r#type = Some(AttributeType::Floats as i32);
+            attribute.floats = floats;
+            return Ok(attribute);
+        }
+    } else if matches!(trimmed, "true" | "false") {
+        attribute.r#type = Some(AttributeType::Int as i32);
+        attribute.i = Some(i64::from(trimmed == "true"));
+        return Ok(attribute);
+    } else if let Ok(integer) = trimmed.parse::<i64>() {
+        attribute.r#type = Some(AttributeType::Int as i32);
+        attribute.i = Some(integer);
+        return Ok(attribute);
+    } else if let Ok(float) = trimmed.parse::<f32>() {
+        attribute.r#type = Some(AttributeType::Float as i32);
+        attribute.f = Some(float);
+        return Ok(attribute);
+    }
+
+    attribute.r#type = Some(AttributeType::String as i32);
+    attribute.s = Some(value.as_bytes().to_vec());
+    Ok(attribute)
 }
 
 /// Load an ONNX model from a binary .onnx file
@@ -309,7 +429,9 @@ pub fn load_onnx_model<P: AsRef<Path>>(path: P) -> Result<Model> {
         ))
     })?;
 
-    from_model_proto(&model_proto)
+    let model = from_model_proto(&model_proto)?;
+    model.validate()?;
+    Ok(model)
 }
 
 /// Convert internal Model to ONNX protobuf ModelProto
@@ -349,8 +471,10 @@ pub fn to_graph_proto(graph: &Graph) -> Result<proto::GraphProto> {
         outputs.push(to_value_info_proto(output)?);
     }
 
+    let mut initializer_entries: Vec<_> = graph.initializers.iter().collect();
+    initializer_entries.sort_by_key(|(name, _)| *name);
     let mut initializers = Vec::new();
-    for (name, tensor) in &graph.initializers {
+    for (name, tensor) in initializer_entries {
         initializers.push(to_tensor_proto(name, tensor)?);
     }
 
@@ -372,13 +496,20 @@ pub fn to_graph_proto(graph: &Graph) -> Result<proto::GraphProto> {
 
 /// Convert internal Node to ONNX protobuf NodeProto
 pub fn to_node_proto(node: &Node) -> Result<proto::NodeProto> {
+    let mut attribute_entries: Vec<_> = node.attributes.iter().collect();
+    attribute_entries.sort_by_key(|(name, _)| *name);
+    let attributes = attribute_entries
+        .into_iter()
+        .map(|(name, value)| to_attribute_proto(&node.op_type, name, value))
+        .collect::<Result<_>>()?;
+
     let node_proto = proto::NodeProto {
         input: node.inputs.clone(),
         output: node.outputs.clone(),
         name: Some(node.name.clone()),
         op_type: Some(node.op_type.clone()),
         domain: None,
-        attribute: vec![], // For simplicity, skip attributes in conversion back
+        attribute: attributes,
         doc_string: None,
         overload: None,
         metadata_props: vec![],
@@ -409,9 +540,15 @@ pub fn to_value_info_proto(spec: &TensorSpec) -> Result<proto::ValueInfoProto> {
     for dim_opt in &spec.dimensions {
         match dim_opt {
             Some(dim_size) => {
+                let dim_value = i64::try_from(*dim_size).map_err(|_| {
+                    OnnxError::invalid_dimensions(format!(
+                        "Tensor '{}' dimension {} exceeds ONNX int64 range",
+                        spec.name, dim_size
+                    ))
+                })?;
                 dims.push(proto::tensor_shape_proto::Dimension {
                     value: Some(proto::tensor_shape_proto::dimension::Value::DimValue(
-                        *dim_size as i64,
+                        dim_value,
                     )),
                     denotation: None,
                 });
@@ -450,8 +587,19 @@ pub fn to_value_info_proto(spec: &TensorSpec) -> Result<proto::ValueInfoProto> {
 
 /// Convert internal Tensor to ONNX protobuf TensorProto
 pub fn to_tensor_proto(name: &str, tensor: &Tensor) -> Result<proto::TensorProto> {
+    let dims = tensor
+        .shape()
+        .iter()
+        .map(|&dimension| {
+            i64::try_from(dimension).map_err(|_| {
+                OnnxError::invalid_dimensions(format!(
+                    "Tensor '{name}' dimension {dimension} exceeds ONNX int64 range"
+                ))
+            })
+        })
+        .collect::<Result<_>>()?;
     let tensor_proto = proto::TensorProto {
-        dims: tensor.shape().iter().map(|&dim| dim as i64).collect(),
+        dims,
         data_type: Some(proto::tensor_proto::DataType::Float as i32),
         segment: None,
         float_data: tensor.data().iter().cloned().collect(),

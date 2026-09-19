@@ -31,7 +31,8 @@ cargo --version
 
 #### 2. Protocol Buffers Compiler
 
-RunNX requires `protoc` for building ONNX protobuf support:
+Normal builds use checked-in ONNX protobuf bindings. Install `protoc` only to
+regenerate them after initializing the ONNX submodule:
 
 **Ubuntu/Debian:**
 ```bash
@@ -553,11 +554,12 @@ All new code must include:
 
 ### Common Issues
 
-**Build failures with protoc:**
+**Binding regeneration failures with protoc:**
 ```
 error: failed to run custom build command for `prost-build`
 ```
-*Solution: Install Protocol Buffers compiler*
+*Solution: initialize submodules, install Protocol Buffers compiler, and run
+`RUNNX_REGENERATE_ONNX_PROTO=1 cargo build`.*
 
 **Test failures in CI but not locally:**
 - Check for platform-specific code

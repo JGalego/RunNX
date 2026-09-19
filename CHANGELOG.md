@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-09-19
+
+### Bug Fixes
+
+- Reject negative or unrepresentable ONNX dimensions instead of wrapping them into large allocations.
+- Validate shape products, convolution/pooling parameters, padding, split sizes, gather indices, and resize scales with checked arithmetic and fallible allocation.
+- Correct ONNX semantics for zero-default Conv padding, arbitrary-axis Softmax, Gather bounds, reverse and empty Slice ranges, zero-length Split outputs, all-padding MaxPool windows, and axis-aware ReduceMean.
+- Preserve model versions and supported node attributes across ONNX serialization round trips, including `ConstantOfShape` tensor attributes.
+- Handle non-standard ndarray layouts correctly in Conv, Gather, and BatchNormalization.
+- Return real operation timing, count, and memory statistics from `Model::run_with_stats`.
+- Support IEEE-754 NaN and infinity behavior in ReLU and Sigmoid.
+- Treat initializer-backed graph inputs as model-provided values for older ONNX IR models.
+
+### Validation and Diagnostics
+
+- Reject graph cycles, duplicate tensor producers, duplicate initializers, ambiguous optional-input holes, and invalid graph input/output names during model loading.
+- Return explicit errors for unsupported `Upsample`, `NonMaxSuppression`, non-constant `Pad`, non-float32 `Cast`, unsupported Conv bias shapes, and incomplete Resize signatures instead of returning fabricated outputs.
+- Add `runnx-runner --version` and align CLI help and documentation with implemented flags.
+- Activate and repair nine property-based formal tests; make Why3/Alt-Ergo failures fail CI instead of being ignored.
+
+### Build and Release
+
+- Use checked-in ONNX protobuf bindings for normal builds; regeneration is now opt-in with `RUNNX_REGENERATE_ONNX_PROTO=1`.
+- Upgrade the vulnerable `crossbeam-epoch` dependency and refresh warned transitive packages; `cargo audit` now reports no vulnerabilities or warnings.
+- Remove the `imageproc` example dependency and unnecessary image codecs, reducing the resolved dependency graph.
+- Add release gates for tag, manifest, changelog, release-note, and stable-branch consistency.
+- Require formatting, Clippy, tests, documentation, release build, and publish dry-run checks before automated publication.
+- Restore latest-stable coverage in the CI matrix while retaining the dedicated Rust 1.85 MSRV job.
+
+### Compatibility Notes
+
+- This is a backward-compatible patch release. Inputs that previously produced silent, fabricated, clamped, or ambiguous results now return actionable errors.
+- `Upsample` and `NonMaxSuppression` remain recognized but are not implemented.
+- `Resize` is limited to nearest-neighbor spatial scaling of 4D NCHW tensors; `Pad` supports constant mode; `Cast` supports only the internal float32 representation.
+
 ## [0.3.0] - 2026-03-25
 
 ### ⚡ Performance

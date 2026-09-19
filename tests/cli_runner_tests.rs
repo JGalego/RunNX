@@ -63,14 +63,16 @@ fn test_cli_help_command() {
 
 #[test]
 fn test_cli_version_command() {
-    // Since --version isn't implemented, test with invalid args to trigger help
     let output = Command::new(get_runner_binary())
+        .arg("--version")
         .output()
         .expect("Failed to execute command");
 
-    // Should show usage/help when no args provided
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!stderr.is_empty());
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        format!("runnx-runner {}", env!("CARGO_PKG_VERSION"))
+    );
 }
 
 #[test]
