@@ -35,9 +35,10 @@ jobs:
       run: |
         if [[ "${{ runner.os }}" == "Linux" ]]; then
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+          sudo apt-get install -y protobuf-compiler libopenblas-dev
         elif [[ "${{ runner.os }}" == "macOS" ]]; then
-          brew install protobuf
+          brew install protobuf openblas
+          echo "PKG_CONFIG_PATH=$(brew --prefix openblas)/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
         elif [[ "${{ runner.os }}" == "Windows" ]]; then
           choco install protoc
         fi
@@ -46,7 +47,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: ${{ matrix.rust == 'stable' && '1.85.0' || matrix.rust }}
+        toolchain: ${{ matrix.rust }}
         components: rustfmt, clippy
 
     - name: Cache cargo registry
@@ -189,7 +190,7 @@ jobs:
     - name: Install Protocol Buffers compiler
       run: |
         sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
+        sudo apt-get install -y protobuf-compiler libopenblas-dev
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -227,12 +228,12 @@ jobs:
     - name: Install Protocol Buffers compiler
       run: |
         sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
+        sudo apt-get install -y protobuf-compiler libopenblas-dev
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: 1.85  # Full support for edition 2024
+        toolchain: 1.85.0  # Minimum supported Rust version
 
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -261,7 +262,7 @@ jobs:
     - name: Install Protocol Buffers compiler
       run: |
         sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
+        sudo apt-get install -y protobuf-compiler libopenblas-dev
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable

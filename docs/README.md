@@ -7,7 +7,7 @@ Welcome to the RunNX documentation! This directory contains comprehensive guides
 ### 🚀 User Guides
 - **[Quick Start Guide](guides/quick-start.md)** - Get up and running with RunNX in minutes
 - **[Installation Guide](guides/installation.md)** - Detailed installation instructions for all platforms
-- **[Usage Examples](guides/examples.md)** - Comprehensive examples and tutorials including YOLOv8
+- **[Usage Examples](guides/examples.md)** - Examples and compatibility checks, including YOLOv8 exports
 - **[Graph Visualization Guide](guides/graph-visualization.md)** - Complete guide to model visualization
 - **[Format Compatibility Guide](FORMAT_COMPATIBILITY.md)** - JSON vs ONNX binary format support
 - **[Command Line Interface](guides/cli.md)** - Complete CLI reference and tools
@@ -20,7 +20,7 @@ Welcome to the RunNX documentation! This directory contains comprehensive guides
 
 ### � Reference
 - **[Changelog](../CHANGELOG.md)** - Complete version history with latest improvements
-- **[Current Release Notes](../RELEASE_NOTES_0.2.0.md)** - Latest release information
+- **[Current Release Notes](../RELEASE_NOTES_0.3.1.md)** - Latest release information
 - **[Release Archive](releases/)** - Historical release notes
 - **[API Documentation](https://docs.rs/runnx)** - Complete API reference on docs.rs
 
@@ -29,12 +29,12 @@ Welcome to the RunNX documentation! This directory contains comprehensive guides
 ### For New Users
 1. **Start Here**: [Quick Start Guide](guides/quick-start.md) - Get running in under 5 minutes
 2. **Install**: [Installation Guide](guides/installation.md) - Platform-specific setup
-3. **Try Examples**: [Usage Examples](guides/examples.md) - YOLOv8 and more
+3. **Try Examples**: [Usage Examples](guides/examples.md) - Core inference and model compatibility
 
 ### For Computer Vision Users
 1. **Model Support**: Wide range of vision models (classification, detection, segmentation)
-2. **Examples Available**: Object detection (YOLOv8), image classification, and more
-3. **Try Examples**: `cargo run --example yolov8_detect_and_draw` for object detection
+2. **Examples Available**: Image workflows and YOLOv8 compatibility diagnostics
+3. **Try Examples**: `cargo run --example yolov8_detect_and_draw` with the required external assets
 
 ### For Developers
 1. **Contribute**: [Contributing Guide](../CONTRIBUTING.md) - How to get involved
@@ -48,10 +48,10 @@ Welcome to the RunNX documentation! This directory contains comprehensive guides
 
 ## 🌟 What's New
 
-### Latest Features (v0.2.0+)
+### Latest Features (v0.3.1)
 
 - ✅ **Enhanced Model Support**: Comprehensive operator coverage for various model types
-- ✅ **Computer Vision**: Full support for classification, detection, and segmentation models
+- ✅ **Computer Vision Primitives**: 2D convolution, pooling, slicing, concatenation, Softmax, and constrained Resize
 - ✅ **Graph Visualization**: Professional diagrams and terminal visualization
 - ✅ **Documentation**: Comprehensive guides and examples
 

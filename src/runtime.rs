@@ -95,6 +95,16 @@ impl Runtime {
         graph: &Graph,
         inputs: HashMap<String, Tensor>,
     ) -> Result<HashMap<String, Tensor>> {
+        self.execute_with_stats(graph, inputs)
+            .map(|(outputs, _stats)| outputs)
+    }
+
+    /// Execute a graph and return both outputs and execution statistics.
+    pub fn execute_with_stats(
+        &self,
+        graph: &Graph,
+        inputs: HashMap<String, Tensor>,
+    ) -> Result<(HashMap<String, Tensor>, ExecutionStats)> {
         let start_time = std::time::Instant::now();
 
         if self.debug {
@@ -113,7 +123,9 @@ impl Runtime {
 
         // Add initializers
         for (name, tensor) in &graph.initializers {
-            context.add_tensor(name.clone(), tensor.clone());
+            if context.get_tensor(name).is_none() {
+                context.add_tensor(name.clone(), tensor.clone());
+            }
         }
 
         // Group nodes into independent waves; nodes within the same wave
@@ -146,7 +158,7 @@ impl Runtime {
 
             // Phase 2: run operators — parallel when the `parallel` feature is
             // enabled, sequential otherwise.
-            let run = |(node_idx, inputs): (usize, Vec<Tensor>)| -> (usize, Result<Vec<Tensor>>) {
+            let run = |(node_idx, inputs): (usize, Vec<Tensor>)| {
                 let node = &graph.nodes[node_idx];
                 if debug {
                     log::debug!("Executing node '{}' ({})", node.name, node.op_type);
@@ -154,6 +166,7 @@ impl Runtime {
                         log::debug!("  Input {}: shape {:?}", i, t.shape());
                     }
                 }
+                let operation_start = std::time::Instant::now();
                 let result = node.get_operator_type().and_then(|op_type| {
                     operators::execute_operator(&op_type, &inputs, &node.attributes).map_err(|e| {
                         OnnxError::runtime_error(format!(
@@ -162,17 +175,20 @@ impl Runtime {
                         ))
                     })
                 });
-                (node_idx, result)
+                (
+                    node_idx,
+                    operation_start.elapsed().as_secs_f64() * 1000.0,
+                    result,
+                )
             };
 
             #[cfg(feature = "parallel")]
-            let results: Vec<(usize, Result<Vec<Tensor>>)> =
-                work.into_par_iter().map(run).collect();
+            let results: Vec<_> = work.into_par_iter().map(run).collect();
             #[cfg(not(feature = "parallel"))]
-            let results: Vec<(usize, Result<Vec<Tensor>>)> = work.into_iter().map(run).collect();
+            let results: Vec<_> = work.into_iter().map(run).collect();
 
             // Phase 3: store outputs sequentially and update stats.
-            for (node_idx, outputs_result) in results {
+            for (node_idx, elapsed_ms, outputs_result) in results {
                 let node = &graph.nodes[node_idx];
                 let output_tensors = outputs_result?;
 
@@ -195,6 +211,11 @@ impl Runtime {
                     context.add_tensor(name.clone(), tensor);
                 }
                 context.stats.ops_executed += 1;
+                *context
+                    .stats
+                    .op_times
+                    .entry(node.op_type.clone())
+                    .or_insert(0.0) += elapsed_ms;
             }
         }
 
@@ -202,7 +223,7 @@ impl Runtime {
         let outputs = self.extract_outputs(graph, &context)?;
 
         // Update statistics
-        context.stats.total_time_ms = start_time.elapsed().as_millis() as f64;
+        context.stats.total_time_ms = start_time.elapsed().as_secs_f64() * 1000.0;
 
         if self.debug {
             log::debug!(
@@ -212,7 +233,7 @@ impl Runtime {
             log::debug!("Operations executed: {}", context.stats.ops_executed);
         }
 
-        Ok(outputs)
+        Ok((outputs, context.stats))
     }
 
     /// Execute a graph with async support (feature gated)
@@ -232,9 +253,16 @@ impl Runtime {
     /// Validate that inputs match the graph's input specifications
     fn validate_inputs(&self, graph: &Graph, inputs: &HashMap<String, Tensor>) -> Result<()> {
         for input_spec in &graph.inputs {
-            let tensor = inputs.get(&input_spec.name).ok_or_else(|| {
-                OnnxError::runtime_error(format!("Missing required input: {}", input_spec.name))
-            })?;
+            let tensor = match inputs.get(&input_spec.name) {
+                Some(tensor) => tensor,
+                None if graph.initializers.contains_key(&input_spec.name) => continue,
+                None => {
+                    return Err(OnnxError::runtime_error(format!(
+                        "Missing required input: {}",
+                        input_spec.name
+                    )))
+                }
+            };
 
             if !input_spec.matches_tensor(tensor) {
                 return Err(OnnxError::shape_mismatch(
@@ -469,6 +497,55 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Missing required input"));
+    }
+
+    #[test]
+    fn test_initializer_backed_graph_input_is_not_required() {
+        let runtime = Runtime::new();
+        let mut graph = Graph::new("legacy_initializer_input".to_string());
+        graph.add_input(crate::graph::TensorSpec::new(
+            "input".to_string(),
+            vec![Some(1)],
+        ));
+        graph.add_input(crate::graph::TensorSpec::new(
+            "bias".to_string(),
+            vec![Some(1)],
+        ));
+        graph.add_output(crate::graph::TensorSpec::new(
+            "output".to_string(),
+            vec![Some(1)],
+        ));
+        graph.add_initializer(
+            "bias".to_string(),
+            Tensor::from_shape_vec(&[1], vec![2.0]).unwrap(),
+        );
+        graph.add_node(crate::graph::Node::new(
+            "add".to_string(),
+            "Add".to_string(),
+            vec!["input".to_string(), "bias".to_string()],
+            vec!["output".to_string()],
+        ));
+
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "input".to_string(),
+            Tensor::from_shape_vec(&[1], vec![3.0]).unwrap(),
+        );
+
+        let outputs = runtime.execute(&graph, inputs).unwrap();
+        assert_eq!(outputs["output"].data()[0], 5.0);
+
+        let mut overriding_inputs = HashMap::new();
+        overriding_inputs.insert(
+            "input".to_string(),
+            Tensor::from_shape_vec(&[1], vec![3.0]).unwrap(),
+        );
+        overriding_inputs.insert(
+            "bias".to_string(),
+            Tensor::from_shape_vec(&[1], vec![4.0]).unwrap(),
+        );
+        let outputs = runtime.execute(&graph, overriding_inputs).unwrap();
+        assert_eq!(outputs["output"].data()[0], 7.0);
     }
 
     #[test]

@@ -1,4 +1,8 @@
-# Code Review - RunNX ONNX Runtime
+# Historical Code Review - RunNX ONNX Runtime
+
+> This report covers the v0.2.1 review performed in 2025. For the current
+> v0.3.1 release review and corrected limitations, see
+> [RELEASE_NOTES_0.3.1.md](RELEASE_NOTES_0.3.1.md) and [CHANGELOG.md](CHANGELOG.md).
 
 **Date**: December 30, 2025  
 **Reviewer**: AI Code Review Assistant  

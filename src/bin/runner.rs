@@ -83,6 +83,10 @@ impl Args {
                     print_help();
                     std::process::exit(0);
                 }
+                "--version" | "-V" => {
+                    println!("runnx-runner {}", env!("CARGO_PKG_VERSION"));
+                    std::process::exit(0);
+                }
                 _ => {
                     return Err(format!("Unknown argument: {}", args[i]));
                 }
@@ -130,12 +134,6 @@ struct OutputTensor {
 }
 
 fn main() {
-    // Initialize logging
-    if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "info");
-    }
-    env_logger::init();
-
     // Parse arguments
     let args = match Args::parse() {
         Ok(args) => args,
@@ -146,10 +144,13 @@ fn main() {
         }
     };
 
-    // Set logging level based on verbosity
+    // Configure logging after parsing so --verbose takes effect.
     if args.verbose {
         env::set_var("RUST_LOG", "debug");
+    } else if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "info");
     }
+    env_logger::init();
 
     // Load model
     println!("Loading model from: {}", args.model_path);
@@ -355,13 +356,14 @@ fn print_help() {
     println!("    runnx-runner --model <MODEL> [OPTIONS]");
     println!();
     println!("OPTIONS:");
-    println!("    -m, --model <MODEL>      Path to the ONNX model file (.json format)");
+    println!("    -m, --model <MODEL>      Path to an ONNX or JSON model file");
     println!("    -i, --input <INPUT>      Path to input data file (.json format)");
-    println!("    -o, --output <o>    Path to save output data (.json format)");
+    println!("    -o, --output <OUTPUT>    Path to save output data (.json format)");
     println!("    -v, --verbose            Enable verbose logging");
     println!("    -s, --summary            Show model summary");
     println!("    -g, --graph              Show model graph visualization");
     println!("    -d, --dot <FILE>         Save graph in DOT format for Graphviz");
+    println!("    -V, --version            Print version information");
     println!("    -h, --help               Print this help message");
     println!();
     println!("EXAMPLES:");

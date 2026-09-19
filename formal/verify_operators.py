@@ -67,20 +67,27 @@ class OperatorVerifier:
                 elif line.startswith('version = ') and current_prover is not None:
                     version = line.split('= ')[1].strip('"')
                     current_prover['version'] = version
+                elif line.startswith('shortcut = ') and current_prover is not None:
+                    shortcut = line.split('= ')[1].strip('"')
+                    current_prover['shortcut'] = shortcut
                 elif line.startswith('alternative = ') and current_prover is not None:
                     alternative = line.split('= ')[1].strip('"')
                     current_prover['alternative'] = alternative
                 elif line.strip() == '' and current_prover:
                     # End of prover section, construct the prover identifier
                     if 'name' in current_prover and 'version' in current_prover:
-                        prover_id = f"{current_prover['name']},{current_prover['version']}"
+                        prover_id = current_prover.get(
+                            'shortcut',
+                            f"{current_prover['name']},{current_prover['version']}"
+                        )
                         display_name = f"{current_prover['name']} {current_prover['version']}"
                         if 'alternative' in current_prover:
                             display_name += f" ({current_prover['alternative']})"
                         
                         provers.append({
                             'id': prover_id,
-                            'display': display_name
+                            'display': display_name,
+                            **current_prover,
                         })
                     current_prover = None
             
@@ -91,7 +98,7 @@ class OperatorVerifier:
             print("⚠️ Could not detect provers")
             return []
     
-    def verify_operator_specs(self, prover="Alt-Ergo,2.6.2", timeout=10):
+    def verify_operator_specs(self, prover="alt-ergo", timeout=10):
         """Verify the operator specifications using Why3"""
         if not self.tensor_spec_file.exists():
             print(f"❌ Tensor specification file not found: {self.tensor_spec_file}")
@@ -113,7 +120,7 @@ class OperatorVerifier:
         
         return tensor_success and operator_success
     
-    def _verify_file(self, spec_file, prover="Alt-Ergo,2.6.2", timeout=10):
+    def _verify_file(self, spec_file, prover="alt-ergo", timeout=10):
         """Verify a single MLW file using Why3"""
         print(f"📝 Checking {spec_file.name}...")
         
@@ -188,7 +195,7 @@ class OperatorVerifier:
             
         return operators
 
-    def verify_specific_operator(self, operator_name, prover="Alt-Ergo,2.6.2"):
+    def verify_specific_operator(self, operator_name, prover="alt-ergo"):
         """Verify specifications for a specific operator"""
         print(f"🎯 Verifying {operator_name} operator...")
         
@@ -206,29 +213,15 @@ class OperatorVerifier:
         # Verify specific goals for this operator
         return self._verify_specific_goals(specs, prover)
     
-    def _verify_specific_goals(self, goal_names, prover="Alt-Ergo,2.6.2", timeout=10):
+    def _verify_specific_goals(self, goal_names, prover="alt-ergo", timeout=10):
         """Verify specific goals/predicates in the MLW files"""
-        all_success = True
-        
         for goal in goal_names:
             print(f"    🔍 Verifying predicate: {goal}")
-            
-            # Check if the predicate exists in operators.mlw
-            success = self._check_predicate_exists(goal)
-            
-            if success:
-                # Verify the file compiles properly
-                compile_success = self._verify_file_compiles(self.operator_spec_file, prover, timeout)
-                if compile_success:
-                    print(f"    ✅ Predicate {goal} exists and compiles successfully!")
-                else:
-                    print(f"    ❌ Predicate {goal} exists but file compilation failed!")
-                    all_success = False
-            else:
+            if not self._check_predicate_exists(goal):
                 print(f"    ❌ Predicate {goal} not found!")
-                all_success = False
-                
-        return all_success
+                return False
+
+        return self._verify_file_compiles(self.operator_spec_file, prover, timeout)
     
     def _check_predicate_exists(self, predicate_name):
         """Check if a predicate exists in the MLW files"""
@@ -249,7 +242,7 @@ class OperatorVerifier:
         except FileNotFoundError:
             return False
     
-    def _verify_file_compiles(self, spec_file, prover="Alt-Ergo,2.6.2", timeout=10):
+    def _verify_file_compiles(self, spec_file, prover="alt-ergo", timeout=10):
         """Verify that an MLW file compiles and type-checks properly"""
         try:
             # Run Why3 proof verification to check compilation
@@ -268,120 +261,29 @@ class OperatorVerifier:
             )
             
             # Success if no compilation errors
-            return result.returncode == 0
+            if result.returncode == 0:
+                return True
+
+            print(f"      stdout: {result.stdout.strip()}")
+            print(f"      stderr: {result.stderr.strip()}")
+            return False
                 
         except subprocess.TimeoutExpired:
             return False
         except subprocess.CalledProcessError:
             return False
     
-    def generate_property_tests(self):
-        """Generate property-based tests from specifications"""
-        print("🧪 Generating property-based tests...")
-        
-        test_template = '''
-#[cfg(test)]
-mod operator_property_tests {{
-    use super::*;
-    use crate::tensor::Tensor;
-    use proptest::prelude::*;
-    
-    // Property test for addition commutativity
-    proptest! {{
-        #[test]
-        fn test_add_commutativity(
-            a in prop::collection::vec(any::<f32>(), 1..100),
-            shape in prop::collection::vec(1usize..10, 1..4)
-        ) {{
-            let tensor_a = Tensor::new(a.clone(), shape.clone()).unwrap();
-            let tensor_b = Tensor::new(a.clone(), shape.clone()).unwrap();
-            
-            let result1 = tensor_a.add(&tensor_b).unwrap();
-            let result2 = tensor_b.add(&tensor_a).unwrap();
-            
-            // Commutativity: a + b == b + a
-            prop_assert_eq!(result1.data(), result2.data());
-        }}
-    }}
-    
-    // Property test for ReLU non-negativity
-    proptest! {{
-        #[test]
-        fn test_relu_non_negative(
-            data in prop::collection::vec(any::<f32>(), 1..100),
-            shape in prop::collection::vec(1usize..10, 1..4)
-        ) {{
-            let tensor = Tensor::new(data, shape).unwrap();
-            let result = tensor.relu().unwrap();
-            
-            // Non-negativity: all outputs >= 0
-            for &value in result.data() {{
-                prop_assert!(value >= 0.0);
-            }}
-        }}
-    }}
-    
-    // Property test for matrix multiplication associativity
-    proptest! {{
-        #[test]
-        fn test_matmul_associativity(
-            m in 1usize..10,
-            n in 1usize..10,
-            p in 1usize..10,
-            q in 1usize..10
-        ) {{
-            let a_data: Vec<f32> = (0..m*n).map(|i| i as f32).collect();
-            let b_data: Vec<f32> = (0..n*p).map(|i| i as f32).collect();
-            let c_data: Vec<f32> = (0..p*q).map(|i| i as f32).collect();
-            
-            let a = Tensor::new(a_data, vec![m, n]).unwrap();
-            let b = Tensor::new(b_data, vec![n, p]).unwrap();
-            let c = Tensor::new(c_data, vec![p, q]).unwrap();
-            
-            // (A * B) * C
-            let ab = a.matmul(&b).unwrap();
-            let ab_c = ab.matmul(&c).unwrap();
-            
-            // A * (B * C)
-            let bc = b.matmul(&c).unwrap();
-            let a_bc = a.matmul(&bc).unwrap();
-            
-            // Associativity: (A * B) * C == A * (B * C)
-            for (i, (&v1, &v2)) in ab_c.data().iter().zip(a_bc.data().iter()).enumerate() {{
-                prop_assert!((v1 - v2).abs() < 1e-5, "Mismatch at index {{}}: {{}} vs {{}}", i, v1, v2);
-            }}
-        }}
-    }}
-}}
-'''
-        
-        property_test_file = Path("../src/operator_property_tests.rs")
-        property_test_file.parent.mkdir(exist_ok=True)
-        with open(property_test_file, 'w') as f:
-            f.write(test_template)
-        
-        print(f"✅ Property tests generated: {property_test_file}")
-        return True
-    
     def select_best_prover(self, provers):
         """Select the best available prover from the list"""
         if not provers:
             return None
         
-        # Preference order: standard Alt-Ergo, then BV, then counterexamples
-        preferred_patterns = [
-            "Alt-Ergo 2.6.2$",  # Standard Alt-Ergo (end of string)
-            "Alt-Ergo 2.6.2 \\(BV\\)",  # BV variant
-            "Alt-Ergo 2.6.2 \\(counterexamples\\)"  # Counterexamples variant
-        ]
-        
-        import re
-        for pattern in preferred_patterns:
+        # Prefer a non-alternative automatic prover using its stable shortcut.
+        for family in ["Alt-Ergo", "CVC5", "CVC4"]:
             for prover in provers:
-                if re.search(pattern, prover['display']):
+                if prover.get('name') == family and 'alternative' not in prover:
                     return prover
-        
-        # If none of the preferred provers are available, use the first one
+
         return provers[0]
     
     def run_all_verifications(self):
@@ -394,8 +296,7 @@ mod operator_property_tests {{
         provers = self.detect_provers()
         if not provers:
             print("⚠️ No provers detected, skipping formal verification")
-            self.generate_property_tests()
-            return True
+            return False
         
         # Select the best available prover
         best_prover = self.select_best_prover(provers)
@@ -407,17 +308,9 @@ mod operator_property_tests {{
             print("❌ No suitable prover found")
             return False
         
-        # Verify all operators that actually exist
         available_operators = self.get_available_operators()
-        operators = list(available_operators.keys())
-        all_passed = True
-        
-        for operator in operators:
-            if not self.verify_specific_operator(operator, prover_id):
-                all_passed = False
-        
-        # Generate property-based tests
-        self.generate_property_tests()
+        print(f"📋 Found specifications for {len(available_operators)} operators")
+        all_passed = self.verify_operator_specs(prover_id)
         
         if all_passed:
             print("🎉 All operator verifications passed!")

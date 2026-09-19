@@ -28,7 +28,8 @@ Pull requests are the best way to propose changes to the codebase. We actively w
 ## Development Setup
 
 1. Install Rust: https://rustup.rs/
-2. Install Protocol Buffers compiler:
+2. To regenerate ONNX bindings, initialize submodules and install Protocol Buffers compiler:
+  - `git submodule update --init --recursive`
    - Ubuntu/Debian: `sudo apt-get install protobuf-compiler`
    - macOS: `brew install protobuf`  
    - Windows: `choco install protoc`

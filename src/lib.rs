@@ -86,6 +86,9 @@ pub mod runtime;
 pub(crate) mod simd;
 pub mod tensor;
 
+#[cfg(test)]
+mod formal_tests;
+
 // Re-export main types
 pub use error::{OnnxError, Result};
 pub use graph::{Graph, Node};

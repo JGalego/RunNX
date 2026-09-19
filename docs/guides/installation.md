@@ -1,12 +1,13 @@
 # Installation Guide
 
-This guide provides detailed installation instructions for RunNX across different platforms and use cases, including YOLOv8 object detection capabilities.
+This guide provides installation instructions for RunNX across supported
+platforms and explains the optional tools used by computer-vision examples.
 
 ## System Requirements
 
 ### Minimum Requirements
 - **Rust**: 1.85.0 or later (latest stable recommended)
-- **Protocol Buffers**: `protoc` compiler version 3.12 or later
+- **Protocol Buffers**: `protoc` 3.12 or later is optional and only needed to regenerate ONNX bindings
 - **Memory**: 4GB RAM minimum (8GB+ recommended for YOLOv8 models)
 - **Storage**: 200MB for basic installation, additional space for YOLO models (~6MB for YOLOv8n)
 
@@ -24,7 +25,7 @@ This guide provides detailed installation instructions for RunNX across differen
 
 ### Protocol Buffers Compiler
 
-RunNX requires `protoc` to compile protocol buffer definitions.
+RunNX ships checked-in protocol buffer bindings. Install `protoc` only if you plan to regenerate them.
 
 #### Ubuntu/Debian
 ```bash
@@ -119,10 +120,10 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-runnx = "0.2.0"
+runnx = "0.3.1"
 
 # Optional features
-runnx = { version = "0.2.0", features = ["async"] }
+runnx = { version = "0.3.1", features = ["async"] }
 ```
 
 Then in your Rust code:
@@ -182,7 +183,7 @@ RunNX supports several optional features:
 
 ```toml
 [dependencies]
-runnx = { version = "0.2.0", features = ["async", "formal-verification"] }
+runnx = { version = "0.3.1", features = ["async", "formal-verification"] }
 ```
 
 ### Available Features

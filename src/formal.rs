@@ -210,7 +210,7 @@ impl contracts::YoloOperatorContracts for Tensor {
         #[cfg(debug_assertions)]
         {
             // Softmax is applied per-slice along the last axis.
-            // Verify that each such slice sums to 1.0 and contains values in (0, 1).
+            // Verify that each such slice sums to 1.0 and contains values in [0, 1].
             let ndim = result.shape().len();
             let axis_size = result.shape()[ndim - 1];
             let outer_size: usize = result.shape()[..ndim - 1].iter().product();
@@ -225,8 +225,8 @@ impl contracts::YoloOperatorContracts for Tensor {
                 );
                 for &value in slice {
                     debug_assert!(
-                        value > 0.0 && value < 1.0,
-                        "Softmax output must be in (0, 1), got: {value}"
+                        (0.0..=1.0).contains(&value),
+                        "Softmax output must be in [0, 1], got: {value}"
                     );
                 }
             }
@@ -274,14 +274,6 @@ impl contracts::YoloOperatorContracts for Tensor {
             return Err(crate::error::OnnxError::invalid_dimensions(
                 "Starts and ends arrays must have same length".to_string(),
             ));
-        }
-
-        for (&start, &end) in starts.iter().zip(ends.iter()) {
-            if start >= end {
-                return Err(crate::error::OnnxError::invalid_dimensions(format!(
-                    "Invalid slice range: start {start} >= end {end}"
-                )));
-            }
         }
 
         self.slice(starts, ends, axes, steps)
@@ -674,11 +666,11 @@ mod tests {
             );
         }
 
-        // Test bounded output
+        // Finite-precision Softmax may round extreme probabilities to 0 or 1.
         for &value in result.data().iter() {
             assert!(
-                value > 0.0 && value < 1.0,
-                "Softmax values should be in (0, 1), got: {value}"
+                (0.0..=1.0).contains(&value),
+                "Softmax values should be in [0, 1], got: {value}"
             );
         }
     }
@@ -716,8 +708,8 @@ mod tests {
     fn test_slice_contracts_validation() {
         let tensor = random_tensor(&[4, 5], 98765);
 
-        // Invalid slice: start >= end
-        let result = tensor.slice_with_contracts(&[1, 3], &[1, 2], None, None);
+        // Invalid slice: a zero step is never allowed.
+        let result = tensor.slice_with_contracts(&[1], &[3], None, Some(&[0]));
         assert!(result.is_err());
 
         // Invalid slice: mismatched array lengths

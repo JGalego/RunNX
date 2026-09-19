@@ -22,7 +22,7 @@ echo "✅ Formal operator tests passed"
 echo ""
 echo "📋 Step 3: Run property-based formal tests"
 echo "------------------------------------------"
-cargo test property_tests --release
+cargo test --lib formal_verification_tests --release
 echo "✅ Property-based formal tests passed"
 
 echo ""
@@ -41,11 +41,8 @@ if command -v why3 &> /dev/null; then
     echo ""
     echo "📋 Step 6: Verify operator specifications"
     echo "------------------------------------------"
-    if python3 verify_operators.py; then
-        echo "✅ Formal verification completed successfully"
-    else
-        echo "⚠️ Formal verification had issues (this is expected if no provers are available)"
-    fi
+    python3 verify_operators.py
+    echo "✅ Formal verification completed successfully"
 else
     echo "⚠️ Why3 not found - skipping formal proofs"
     echo "   To install Why3: cd formal && make install-why3"

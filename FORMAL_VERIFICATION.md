@@ -145,24 +145,27 @@ cargo test --features formal-verification
 
 ### Run Property-Based Tests
 ```bash
-cargo test test_formal
+cargo test --lib formal_verification_tests
 ```
 
 ## 🎯 Impact
 
-RunNX is now one of the **first formally verified ONNX runtimes**, providing:
+RunNX provides a verification-oriented workflow with:
 
-1. **Mathematical guarantees** about operator correctness
-2. **Automated theorem proving** for all major operations  
-3. **Property-based testing** derived from formal specifications
+1. **Machine-checked Why3 specifications** for operator properties
+2. **Automated theorem proving** for the specification proof obligations
+3. **Property-based testing** of the Rust implementation
 4. **Runtime contract checking** for additional safety
-5. **Complete verification workflow** integrated into development
+5. **Continuous verification workflow** integrated into development
 
-This makes RunNX suitable for **safety-critical applications**, **research environments**, and any use case requiring **mathematical certainty** in neural network inference.
+The Why3 proofs apply to the specification model. Property tests and runtime
+contracts provide evidence that the Rust implementation follows that model, but
+they are not a deductive proof of the implementation itself.
 
 ---
 
-**🎉 The operators are now formally verified and mathematically guaranteed to be correct!**
+The formal artifacts and executable tests are complementary and should be
+reviewed together when assessing operator correctness.
 
 ## 🛠️ Verification Tools Stack
 
@@ -247,8 +250,8 @@ proptest! {
 
 ### 1. Mathematical Correctness
 
-- **Guarantee**: All tensor operations satisfy their mathematical properties
-- **Coverage**: Comprehensive verification of arithmetic operations
+- **Goal**: Check selected mathematical properties over generated inputs
+- **Coverage**: Focused validation of arithmetic and activation operations
 - **Reliability**: Prevents silent mathematical errors in neural network inference
 
 ### 2. Numerical Stability
@@ -265,7 +268,7 @@ proptest! {
 
 ### 4. Continuous Verification
 
-- **CI/CD**: Every code change is formally verified
+- **CI/CD**: Why3 specifications, Rust contracts, and property tests run on each change
 - **Regression**: Mathematical properties are tested automatically  
 - **Reports**: Detailed verification reports are generated
 

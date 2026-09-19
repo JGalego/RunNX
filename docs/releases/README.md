@@ -5,7 +5,9 @@ This directory contains historical release notes for RunNX. The latest release n
 ## Releases
 
 ### Current Release
-- **[v0.2.0](../../RELEASE_NOTES_0.2.0.md)** *(Latest)* - Graph Visualization & YOLO Support
+- **[v0.3.1](../../RELEASE_NOTES_0.3.1.md)** *(Latest)* - Correctness and release hardening
+- **[v0.3.0](../../CHANGELOG.md#030---2026-03-25)** - Convolution and execution performance
+- **[v0.2.0](../../RELEASE_NOTES_0.2.0.md)** - Graph Visualization & YOLO Support
 
 ### Previous Releases
 - **[v0.1.1](RELEASE_NOTES_0.1.1.md)** - ONNX Binary Format & Formal Verification
@@ -31,7 +33,7 @@ Each release note file includes:
 
 ## Quick Navigation
 
-- [Latest Release](../../RELEASE_NOTES_0.2.0.md)
+- [Latest Release](../../RELEASE_NOTES_0.3.1.md)
 - [Complete Changelog](../../CHANGELOG.md)
 - [Contributing Guidelines](../../CONTRIBUTING.md)
 - [Main Documentation](../../README.md)

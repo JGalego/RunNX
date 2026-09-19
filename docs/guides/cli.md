@@ -50,13 +50,11 @@ runnx-runner [OPTIONS] --model <MODEL_PATH>
 | `--graph` | Show terminal graph visualization | `--graph` |
 | `--dot <PATH>` | Export Graphviz DOT format to file | `--dot model.dot` |
 
-### Feature Flags
+### Runtime Options
 
 | Option | Description | Example |
 |--------|-------------|---------|
-| `--async` | Enable async processing (requires async feature) | `--async` |
 | `--verbose` | Enable verbose logging | `--verbose` |
-| `--quiet` | Suppress non-error output | `--quiet` |
 
 ### Help Options
 
@@ -112,11 +110,8 @@ runnx-runner --model model.onnx --summary --graph --dot model.dot
 # Verbose logging
 runnx-runner --model model.onnx --input input.json --verbose
 
-# Quiet mode (errors only)
-runnx-runner --model model.onnx --input input.json --quiet
-
-# Async processing (requires async feature)
-cargo run --features async --bin runnx-runner -- --model model.onnx --input input.json --async
+# Build the library with its asynchronous API enabled
+cargo build --features async
 ```
 
 ## Input File Format
@@ -335,8 +330,8 @@ for input_file in "$INPUT_DIR"*.json; do
     runnx-runner \
         --model "$MODEL" \
         --input "$input_file" \
-        --output "$OUTPUT_DIR/${filename}_result.json" \
-        --quiet
+      --output "$OUTPUT_DIR/${filename}_result.json" \
+      > /dev/null
 done
 
 echo "Batch processing complete"
@@ -528,8 +523,8 @@ cargo build --release
 # Use release binary
 ./target/release/runnx-runner --model model.onnx --input input.json
 
-# Reduce memory usage with minimal features
-cargo build --release --no-default-features --features minimal
+# Build without optional execution backends
+cargo build --release --no-default-features
 ```
 
 ### Large Model Handling
@@ -538,8 +533,8 @@ cargo build --release --no-default-features --features minimal
 # For very large models, increase stack size
 RUST_MIN_STACK=16777216 runnx-runner --model large_model.onnx --summary
 
-# Use quiet mode to reduce output overhead
-runnx-runner --model model.onnx --input input.json --quiet --output results.json
+# Redirect progress output in automation
+runnx-runner --model model.onnx --input input.json --output results.json > /dev/null
 ```
 
 ## Next Steps

@@ -56,6 +56,33 @@ fn test_reshape_inferred_dim_not_divisible() {
     assert!(result.unwrap_err().to_string().contains("divisible"));
 }
 
+#[test]
+fn test_reshape_rejects_non_integer_shape_values() {
+    let data = Tensor::from_shape_vec(&[2], vec![1.0, 2.0]).unwrap();
+    for dimension in [1.5, f32::NAN, f32::INFINITY] {
+        let shape = Tensor::from_shape_vec(&[1], vec![dimension]).unwrap();
+        let result = execute_operator(
+            &OperatorType::Reshape,
+            &[data.clone(), shape],
+            &HashMap::new(),
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be a finite integer"));
+    }
+}
+
+#[test]
+fn test_reshape_rejects_shape_product_overflow() {
+    let data = Tensor::from_shape_vec(&[1], vec![1.0]).unwrap();
+    let shape = Tensor::from_shape_vec(&[2], vec![4_294_967_296.0, 4_294_967_296.0]).unwrap();
+
+    let error =
+        execute_operator(&OperatorType::Reshape, &[data, shape], &HashMap::new()).unwrap_err();
+    assert!(error.to_string().contains("overflow usize"));
+}
+
 // ============================================================
 // concat_op — negative axis
 // ============================================================
@@ -76,11 +103,9 @@ fn test_concat_op_negative_axis() {
 
 #[test]
 fn test_slice_op_missing_attributes() {
-    // Only 1 input and no starts/ends attrs → returns input unchanged
     let tensor = Tensor::from_shape_vec(&[4], vec![1., 2., 3., 4.]).unwrap();
-    let result =
-        execute_operator(&OperatorType::Slice, &[tensor.clone()], &HashMap::new()).unwrap();
-    assert_eq!(result[0].shape(), tensor.shape());
+    let error = execute_operator(&OperatorType::Slice, &[tensor], &HashMap::new()).unwrap_err();
+    assert!(error.to_string().contains("requires starts and ends"));
 }
 
 #[test]
@@ -115,6 +140,34 @@ fn test_slice_op_with_steps_input() {
     .unwrap();
     // step=2 → every other element → 3 elements
     assert_eq!(result[0].shape(), &[3]);
+}
+
+#[test]
+fn test_slice_op_with_negative_step() {
+    let data = Tensor::from_shape_vec(&[5], vec![0., 1., 2., 3., 4.]).unwrap();
+    let starts = Tensor::from_shape_vec(&[1], vec![-1.0]).unwrap();
+    let ends = Tensor::from_shape_vec(&[1], vec![i64::MIN as f32]).unwrap();
+    let axes = Tensor::from_shape_vec(&[1], vec![-1.0]).unwrap();
+    let steps = Tensor::from_shape_vec(&[1], vec![-1.0]).unwrap();
+
+    let result = execute_operator(
+        &OperatorType::Slice,
+        &[data, starts, ends, axes, steps],
+        &HashMap::new(),
+    )
+    .unwrap();
+    assert_eq!(result[0].data().as_slice().unwrap(), &[4., 3., 2., 1., 0.]);
+}
+
+#[test]
+fn test_slice_op_rejects_fractional_parameters() {
+    let data = Tensor::from_shape_vec(&[4], vec![0., 1., 2., 3.]).unwrap();
+    let starts = Tensor::from_shape_vec(&[1], vec![0.5]).unwrap();
+    let ends = Tensor::from_shape_vec(&[1], vec![2.0]).unwrap();
+
+    let error =
+        execute_operator(&OperatorType::Slice, &[data, starts, ends], &HashMap::new()).unwrap_err();
+    assert!(error.to_string().contains("finite integer"));
 }
 
 // ============================================================
@@ -329,14 +382,13 @@ fn test_pad_op_constant_value_from_input() {
 }
 
 #[test]
-fn test_pad_op_non_constant_mode_returns_input() {
-    // Reflect mode → simplified to returning input unchanged
+fn test_pad_op_non_constant_mode_returns_error() {
     let tensor = Tensor::from_shape_vec(&[2, 2], vec![1., 2., 3., 4.]).unwrap();
     let pads = Tensor::from_shape_vec(&[4], vec![1., 1., 1., 1.]).unwrap();
     let mut attrs = HashMap::new();
     attrs.insert("mode".to_string(), "reflect".to_string());
-    let result = execute_operator(&OperatorType::Pad, &[tensor.clone(), pads], &attrs).unwrap();
-    assert_eq!(result[0].shape(), tensor.shape());
+    let error = execute_operator(&OperatorType::Pad, &[tensor, pads], &attrs).unwrap_err();
+    assert!(error.to_string().contains("not implemented"));
 }
 
 // ============================================================
@@ -454,7 +506,7 @@ fn test_conv_op_mismatched_channels() {
 }
 
 // ============================================================
-// maxpool_op — edge case: all padding (max_val stays NEG_INFINITY → 0)
+// maxpool_op — edge case: all-padding windows remain negative infinity
 // ============================================================
 
 #[test]
@@ -468,6 +520,24 @@ fn test_maxpool_op_with_large_padding() {
     let result = execute_operator(&OperatorType::MaxPool, &[tensor], &attrs).unwrap();
     // With padding [1,1,1,1] and kernel [2,2], output shape is (2+1+1-2)/1+1 = 3
     assert_eq!(result[0].shape(), &[1, 1, 3, 3]);
+}
+
+#[test]
+fn test_maxpool_op_all_padding_windows_are_negative_infinity() {
+    let tensor = Tensor::from_shape_vec(&[1, 1, 1, 1], vec![-5.0]).unwrap();
+    let mut attrs = HashMap::new();
+    attrs.insert("kernel_shape".to_string(), "[1,1]".to_string());
+    attrs.insert("pads".to_string(), "[1,1,1,1]".to_string());
+
+    let result = execute_operator(&OperatorType::MaxPool, &[tensor], &attrs).unwrap();
+    assert_eq!(result[0].shape(), &[1, 1, 3, 3]);
+    let values = result[0].data().as_slice().unwrap();
+    assert_eq!(values[4], -5.0);
+    for (index, &value) in values.iter().enumerate() {
+        if index != 4 {
+            assert_eq!(value, f32::NEG_INFINITY);
+        }
+    }
 }
 
 // ============================================================
@@ -535,11 +605,9 @@ fn test_upsample_op_empty_inputs_error() {
 
 #[test]
 fn test_resize_op_fallback_no_scales() {
-    // Single input, no scales → fallback returns input unchanged
     let input = Tensor::from_shape_vec(&[1, 1, 2, 2], vec![1., 2., 3., 4.]).unwrap();
-    let result =
-        execute_operator(&OperatorType::Resize, &[input.clone()], &HashMap::new()).unwrap();
-    assert_eq!(result[0].shape(), input.shape());
+    let error = execute_operator(&OperatorType::Resize, &[input], &HashMap::new()).unwrap_err();
+    assert!(error.to_string().contains("requires four scale values"));
 }
 
 #[test]
@@ -554,13 +622,11 @@ fn test_maxpool_op_wrong_input_count() {
 
 #[test]
 fn test_transpose_op_unparseable_perm() {
-    // "abc,def" can't parse as usize → warning logged, uses default reverse transpose
     let tensor = Tensor::from_shape_vec(&[2, 3], vec![1., 2., 3., 4., 5., 6.]).unwrap();
     let mut attrs = HashMap::new();
     attrs.insert("perm".to_string(), "abc,def".to_string());
-    let result = execute_operator(&OperatorType::Transpose, &[tensor], &attrs).unwrap();
-    // Default transpose reverses axes: [2,3] → [3,2]
-    assert_eq!(result[0].shape(), &[3, 2]);
+    let error = execute_operator(&OperatorType::Transpose, &[tensor], &attrs).unwrap_err();
+    assert!(error.to_string().contains("Invalid Transpose perm"));
 }
 
 // ============================================================
@@ -605,25 +671,59 @@ fn test_split_op_zero_sized_chunk() {
     attrs.insert("axis".to_string(), "0".to_string());
     attrs.insert("split".to_string(), "2,0,3".to_string());
     let result = execute_operator(&OperatorType::Split, &[tensor], &attrs).unwrap();
-    // Zero-sized middle split is skipped → 2 outputs
-    assert_eq!(result.len(), 2);
+    assert_eq!(result.len(), 3);
     assert_eq!(result[0].shape(), &[2]);
-    assert_eq!(result[1].shape(), &[3]);
+    assert_eq!(result[1].shape(), &[0]);
+    assert_eq!(result[2].shape(), &[3]);
+}
+
+#[test]
+fn test_split_op_rejects_invalid_size_tensor_values() {
+    let tensor = Tensor::from_shape_vec(&[4], vec![1.0; 4]).unwrap();
+    for size in [-1.0, 1.5, f32::NAN] {
+        let sizes = Tensor::from_shape_vec(&[2], vec![size, 4.0]).unwrap();
+        let result = execute_operator(
+            &OperatorType::Split,
+            &[tensor.clone(), sizes],
+            &HashMap::new(),
+        );
+        assert!(result.is_err(), "split size {size} should be rejected");
+    }
 }
 
 // ============================================================
-// gather_op — out-of-bounds positive index clamping
+// gather_op — invalid index validation
 // ============================================================
 
 #[test]
-fn test_gather_op_index_clamped_to_last() {
+fn test_gather_op_rejects_out_of_bounds_indices() {
     let data = Tensor::from_shape_vec(&[4], vec![10., 20., 30., 40.]).unwrap();
-    let indices = Tensor::from_shape_vec(&[2], vec![2.0, 5.0]).unwrap(); // 5 >= size(4)
-    let mut attrs = HashMap::new();
-    attrs.insert("axis".to_string(), "0".to_string());
-    let result = execute_operator(&OperatorType::Gather, &[data, indices], &attrs).unwrap();
-    assert!((result[0].data()[0] - 30.0).abs() < 1e-6); // index 2 → 30
-    assert!((result[0].data()[1] - 40.0).abs() < 1e-6); // index 5 clamped to 3 → 40
+    for index in [5.0, -5.0] {
+        let indices = Tensor::from_shape_vec(&[1], vec![index]).unwrap();
+        let result = execute_operator(
+            &OperatorType::Gather,
+            &[data.clone(), indices],
+            &HashMap::new(),
+        );
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
+    }
+}
+
+#[test]
+fn test_gather_op_rejects_non_integer_indices() {
+    let data = Tensor::from_shape_vec(&[4], vec![10., 20., 30., 40.]).unwrap();
+    for index in [1.5, f32::NAN, f32::INFINITY] {
+        let indices = Tensor::from_shape_vec(&[1], vec![index]).unwrap();
+        let result = execute_operator(
+            &OperatorType::Gather,
+            &[data.clone(), indices],
+            &HashMap::new(),
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not a finite integer"));
+    }
 }
 
 // ============================================================
@@ -632,31 +732,21 @@ fn test_gather_op_index_clamped_to_last() {
 
 #[test]
 fn test_resize_op_two_inputs_insufficient_scales() {
-    // scales tensor has < 4 elements → falls through to attribute/fallback path
+    // A 4D resize requires four scale values.
     let input = Tensor::from_shape_vec(&[1, 1, 2, 2], vec![1., 2., 3., 4.]).unwrap();
     let scales = Tensor::from_shape_vec(&[2], vec![2.0, 2.0]).unwrap();
-    let result = execute_operator(
-        &OperatorType::Resize,
-        &[input.clone(), scales],
-        &HashMap::new(),
-    )
-    .unwrap();
-    // Falls through to fallback; returns input unchanged
-    assert_eq!(result[0].shape(), input.shape());
+    let error =
+        execute_operator(&OperatorType::Resize, &[input, scales], &HashMap::new()).unwrap_err();
+    assert!(error.to_string().contains("requires four scale values"));
 }
 
 #[test]
 fn test_resize_op_two_inputs_non_4d() {
-    // input is 2D, not 4D → condition fails, falls through to fallback
     let input = Tensor::from_shape_vec(&[2, 3], vec![1.; 6]).unwrap();
     let scales = Tensor::from_shape_vec(&[4], vec![1.0, 1.0, 2.0, 2.0]).unwrap();
-    let result = execute_operator(
-        &OperatorType::Resize,
-        &[input.clone(), scales],
-        &HashMap::new(),
-    )
-    .unwrap();
-    assert_eq!(result[0].shape(), input.shape());
+    let error =
+        execute_operator(&OperatorType::Resize, &[input, scales], &HashMap::new()).unwrap_err();
+    assert!(error.to_string().contains("requires a 4D input"));
 }
 
 // ============================================================

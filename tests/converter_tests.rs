@@ -34,7 +34,7 @@ fn test_model_proto_conversion_comprehensive() -> Result<()> {
 
     // Verify metadata preservation - test actual behavior, not expected behavior
     assert_eq!(model.graph.name, converted_model.metadata.name); // Name comes from graph
-    assert_eq!("", converted_model.metadata.version); // Version is lost in round-trip due to storage mismatch
+    assert_eq!(model.metadata.version, converted_model.metadata.version);
     assert_eq!(
         model.metadata.description,
         converted_model.metadata.description
@@ -99,8 +99,7 @@ fn test_node_proto_conversion_comprehensive() -> Result<()> {
     assert_eq!(node.op_type, converted_node.op_type);
     assert_eq!(node.inputs, converted_node.inputs);
     assert_eq!(node.outputs, converted_node.outputs);
-    // Note: attributes are deliberately lost in round-trip (see converter.rs line 314)
-    assert_eq!(0, converted_node.attributes.len());
+    assert_eq!(node.attributes, converted_node.attributes);
 
     Ok(())
 }
@@ -282,6 +281,71 @@ fn test_empty_structures() -> Result<()> {
 }
 
 #[test]
+fn test_from_node_proto_filters_omitted_optional_io() -> Result<()> {
+    let node_proto = proto::NodeProto {
+        input: vec!["input".to_string(), String::new()],
+        output: vec!["output".to_string(), String::new()],
+        op_type: Some("Relu".to_string()),
+        ..Default::default()
+    };
+
+    let node = from_node_proto(&node_proto)?;
+    assert_eq!(node.inputs, vec!["input"]);
+    assert_eq!(node.outputs, vec!["output"]);
+    Ok(())
+}
+
+#[test]
+fn test_from_node_proto_rejects_interior_omitted_slots() {
+    for (inputs, outputs, kind) in [
+        (
+            vec!["input".to_string(), String::new(), "scales".to_string()],
+            vec!["output".to_string()],
+            "input",
+        ),
+        (
+            vec!["input".to_string()],
+            vec!["output".to_string(), String::new(), "indices".to_string()],
+            "output",
+        ),
+    ] {
+        let node_proto = proto::NodeProto {
+            input: inputs,
+            output: outputs,
+            name: Some("optional_slots".to_string()),
+            op_type: Some("Resize".to_string()),
+            ..Default::default()
+        };
+
+        let error = from_node_proto(&node_proto).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains(&format!("omitted optional {kind}")));
+    }
+}
+
+#[test]
+fn test_from_graph_proto_rejects_duplicate_initializers() {
+    let initializer = proto::TensorProto {
+        dims: vec![1],
+        data_type: Some(proto::tensor_proto::DataType::Float as i32),
+        float_data: vec![1.0],
+        name: Some("weights".to_string()),
+        ..Default::default()
+    };
+    let graph_proto = proto::GraphProto {
+        name: Some("duplicate_initializers".to_string()),
+        initializer: vec![initializer.clone(), initializer],
+        ..Default::default()
+    };
+
+    let error = from_graph_proto(&graph_proto).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Duplicate graph initializer name: weights"));
+}
+
+#[test]
 fn test_tensor_operations() -> Result<()> {
     // Test with different tensor shapes
     let shapes = vec![
@@ -336,7 +400,7 @@ fn test_model_metadata_variations() -> Result<()> {
         let converted = from_model_proto(&model_proto)?;
 
         assert_eq!(model.graph.name, converted.metadata.name); // Name comes from graph
-        assert_eq!("", converted.metadata.version); // Version is lost in round-trip
+        assert_eq!(metadata.version, converted.metadata.version);
     }
 
     Ok(())
@@ -405,6 +469,22 @@ fn test_from_tensor_proto_double_data() -> Result<()> {
         .contains("Unsupported tensor data type"));
 
     Ok(())
+}
+
+#[test]
+fn test_from_tensor_proto_rejects_negative_dimensions() {
+    let tensor_proto = proto::TensorProto {
+        dims: vec![-1],
+        data_type: Some(proto::tensor_proto::DataType::Float as i32),
+        float_data: vec![1.0],
+        name: Some("weights".to_string()),
+        ..Default::default()
+    };
+
+    let error = from_tensor_proto(&tensor_proto).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Tensor 'weights' has negative dimension -1"));
 }
 
 #[test]
@@ -728,6 +808,33 @@ fn test_from_value_info_proto_with_symbolic_dimensions() -> Result<()> {
 }
 
 #[test]
+fn test_from_value_info_proto_rejects_negative_dimensions() {
+    let shape = proto::TensorShapeProto {
+        dim: vec![proto::tensor_shape_proto::Dimension {
+            value: Some(proto::tensor_shape_proto::dimension::Value::DimValue(-1)),
+            ..Default::default()
+        }],
+    };
+    let tensor_type = proto::type_proto::Tensor {
+        elem_type: Some(proto::tensor_proto::DataType::Float as i32),
+        shape: Some(shape),
+    };
+    let value_info = proto::ValueInfoProto {
+        name: Some("input".to_string()),
+        r#type: Some(proto::TypeProto {
+            value: Some(proto::type_proto::Value::TensorType(tensor_type)),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let error = from_value_info_proto(&value_info).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Tensor 'input' has negative dimension -1"));
+}
+
+#[test]
 fn test_from_model_proto_missing_graph() -> Result<()> {
     // Test model proto without graph
     let model_proto = proto::ModelProto {
@@ -759,6 +866,15 @@ fn test_to_value_info_proto_unsupported_dtype() -> Result<()> {
         .contains("Unsupported data type: unsupported_type"));
 
     Ok(())
+}
+
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn test_to_value_info_proto_rejects_dimension_above_i64() {
+    let spec = TensorSpec::new("too_large".to_string(), vec![Some(usize::MAX)]);
+
+    let error = to_value_info_proto(&spec).unwrap_err();
+    assert!(error.to_string().contains("exceeds ONNX int64 range"));
 }
 
 #[test]
@@ -817,6 +933,31 @@ fn test_load_onnx_model_various_error_paths() -> Result<()> {
     let result = load_onnx_model(temp_file2.path());
     assert!(result.is_err());
 
+    Ok(())
+}
+
+#[test]
+fn test_load_onnx_model_rejects_invalid_graph() -> Result<()> {
+    let mut graph = Graph::new("cyclic_graph".to_string());
+    graph.add_output(TensorSpec::new("a".to_string(), vec![Some(1)]));
+    graph.add_node(Node::new(
+        "first".to_string(),
+        "Relu".to_string(),
+        vec!["b".to_string()],
+        vec!["a".to_string()],
+    ));
+    graph.add_node(Node::new(
+        "second".to_string(),
+        "Sigmoid".to_string(),
+        vec!["a".to_string()],
+        vec!["b".to_string()],
+    ));
+    let model = Model::new(graph);
+    let temp_file = NamedTempFile::new()?;
+    save_onnx_model(&model, temp_file.path())?;
+
+    let error = load_onnx_model(temp_file.path()).unwrap_err();
+    assert!(error.to_string().contains("cycles"));
     Ok(())
 }
 
@@ -893,7 +1034,7 @@ fn test_node_with_complex_attributes() -> Result<()> {
     node.add_attribute("group", "1");
     node.add_attribute("auto_pad", "NOTSET");
 
-    // Convert to proto (attributes are intentionally lost in round-trip)
+    // Convert to proto and back.
     let node_proto = to_node_proto(&node)?;
     let converted_node = from_node_proto(&node_proto)?;
 
@@ -903,9 +1044,37 @@ fn test_node_with_complex_attributes() -> Result<()> {
     assert_eq!(node.inputs, converted_node.inputs);
     assert_eq!(node.outputs, converted_node.outputs);
 
-    // Attributes are not preserved in round-trip (by design)
-    assert_eq!(converted_node.attributes.len(), 0);
+    assert_eq!(converted_node.attributes, node.attributes);
 
+    Ok(())
+}
+
+#[test]
+fn test_constant_of_shape_tensor_attribute_round_trip() -> Result<()> {
+    let mut node = Node::new(
+        "constant".to_string(),
+        "ConstantOfShape".to_string(),
+        vec!["shape".to_string()],
+        vec!["output".to_string()],
+    );
+    node.add_attribute("value", "3.5");
+
+    let node_proto = to_node_proto(&node)?;
+    let value_attribute = node_proto
+        .attribute
+        .iter()
+        .find(|attribute| attribute.name.as_deref() == Some("value"))
+        .unwrap();
+    assert_eq!(
+        value_attribute.r#type,
+        Some(proto::attribute_proto::AttributeType::Tensor as i32)
+    );
+
+    let converted = from_node_proto(&node_proto)?;
+    assert_eq!(
+        converted.attributes.get("value").map(String::as_str),
+        Some("3.5")
+    );
     Ok(())
 }
 
@@ -929,7 +1098,7 @@ fn test_model_metadata_edge_cases() -> Result<()> {
 
     // Verify empty strings are handled correctly
     assert_eq!(converted.metadata.name, "test_graph"); // Name comes from graph
-    assert_eq!(converted.metadata.version, ""); // Version lost in round-trip
+    assert_eq!(converted.metadata.version, "");
     assert_eq!(converted.metadata.description, "");
     assert_eq!(converted.metadata.producer, "");
     assert_eq!(converted.metadata.domain, "");
