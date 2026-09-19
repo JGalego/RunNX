@@ -7,23 +7,7 @@ use tempfile::{NamedTempFile, TempDir};
 
 /// Get the path to the runnx-runner binary
 fn get_runner_binary() -> PathBuf {
-    // Try different possible locations
-    let possibilities = [
-        "target/debug/runnx-runner",
-        "target/release/runnx-runner",
-        "./target/debug/runnx-runner",
-        "./target/release/runnx-runner",
-    ];
-
-    for path in &possibilities {
-        let path_buf = PathBuf::from(path);
-        if path_buf.exists() {
-            return path_buf;
-        }
-    }
-
-    // Fallback to the most likely location
-    PathBuf::from("target/debug/runnx-runner")
+    PathBuf::from(env!("CARGO_BIN_EXE_runnx-runner"))
 }
 
 /// Create a minimal valid JSON model file for testing
