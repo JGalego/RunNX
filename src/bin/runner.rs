@@ -242,8 +242,8 @@ fn main() {
     // Save or print outputs
     match save_outputs(&outputs, args.output_path.as_deref()) {
         Ok(()) => {
-            if args.output_path.is_some() {
-                println!("Outputs saved to: {}", args.output_path.unwrap());
+            if let Some(output_path) = args.output_path {
+                println!("Outputs saved to: {output_path}");
             }
         }
         Err(e) => {

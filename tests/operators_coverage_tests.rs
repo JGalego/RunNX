@@ -797,7 +797,7 @@ fn test_concat_op_single_input_returns_clone() {
     let a = Tensor::from_shape_vec(&[2, 3], vec![1., 2., 3., 4., 5., 6.]).unwrap();
     let mut attrs = HashMap::new();
     attrs.insert("axis".to_string(), "0".to_string());
-    let result = execute_operator(&OperatorType::Concat, &[a.clone()], &attrs).unwrap();
+    let result = execute_operator(&OperatorType::Concat, std::slice::from_ref(&a), &attrs).unwrap();
     assert_eq!(result[0].shape(), a.shape());
     assert_eq!(
         result[0].data().as_slice().unwrap(),
