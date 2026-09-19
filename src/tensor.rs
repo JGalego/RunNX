@@ -461,9 +461,9 @@ impl Tensor {
                         // Identity - no change
                         Ok(self.clone())
                     } else {
-                        return Err(OnnxError::invalid_dimensions(format!(
+                        Err(OnnxError::invalid_dimensions(format!(
                             "Invalid 2D permutation {axes:?}"
-                        )));
+                        )))
                     }
                 } else if axes == (0..axes.len()).collect::<Vec<_>>() {
                     // Identity permutation - no change needed
@@ -502,9 +502,9 @@ impl Tensor {
                         })
                     } else {
                         // For higher dimensions, return error
-                        return Err(OnnxError::invalid_dimensions(format!(
+                        Err(OnnxError::invalid_dimensions(format!(
                             "Default transpose for {ndim}-dimensional tensors not supported. Use perm attribute to specify axis permutation."
-                        )));
+                        )))
                     }
                 }
             }

@@ -3363,9 +3363,24 @@ mod tests {
         let attrs = HashMap::new();
 
         // Test all single-input operators
-        assert!(execute_operator(&OperatorType::Relu, &[tensor_1d.clone()], &attrs).is_ok());
-        assert!(execute_operator(&OperatorType::Sigmoid, &[tensor_1d.clone()], &attrs).is_ok());
-        assert!(execute_operator(&OperatorType::Transpose, &[tensor_2d.clone()], &attrs).is_ok());
+        assert!(execute_operator(
+            &OperatorType::Relu,
+            std::slice::from_ref(&tensor_1d),
+            &attrs
+        )
+        .is_ok());
+        assert!(execute_operator(
+            &OperatorType::Sigmoid,
+            std::slice::from_ref(&tensor_1d),
+            &attrs
+        )
+        .is_ok());
+        assert!(execute_operator(
+            &OperatorType::Transpose,
+            std::slice::from_ref(&tensor_2d),
+            &attrs
+        )
+        .is_ok());
 
         // Test dual-input operators
         assert!(execute_operator(
@@ -3577,14 +3592,22 @@ mod tests {
 
         let mut zero_stride = HashMap::new();
         zero_stride.insert("strides".to_string(), "[0,1]".to_string());
-        let error =
-            execute_operator(&OperatorType::MaxPool, &[input.clone()], &zero_stride).unwrap_err();
+        let error = execute_operator(
+            &OperatorType::MaxPool,
+            std::slice::from_ref(&input),
+            &zero_stride,
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("strides must be non-zero"));
 
         let mut negative_padding = HashMap::new();
         negative_padding.insert("pads".to_string(), "[-1,0,0,0]".to_string());
-        let error = execute_operator(&OperatorType::MaxPool, &[input.clone()], &negative_padding)
-            .unwrap_err();
+        let error = execute_operator(
+            &OperatorType::MaxPool,
+            std::slice::from_ref(&input),
+            &negative_padding,
+        )
+        .unwrap_err();
         assert!(error
             .to_string()
             .contains("MaxPool pads must be non-negative"));
@@ -3690,14 +3713,39 @@ mod tests {
         let attrs = HashMap::new();
 
         // Test extended operators
-        assert!(execute_operator(&OperatorType::Concat, &[tensor_1d.clone()], &attrs).is_ok());
+        assert!(execute_operator(
+            &OperatorType::Concat,
+            std::slice::from_ref(&tensor_1d),
+            &attrs
+        )
+        .is_ok());
         let mut slice_attrs = HashMap::new();
         slice_attrs.insert("starts".to_string(), "0".to_string());
         slice_attrs.insert("ends".to_string(), "1".to_string());
-        assert!(execute_operator(&OperatorType::Slice, &[tensor_1d.clone()], &slice_attrs).is_ok());
-        assert!(execute_operator(&OperatorType::Upsample, &[tensor_4d.clone()], &attrs).is_err());
-        assert!(execute_operator(&OperatorType::MaxPool, &[tensor_4d.clone()], &attrs).is_ok());
-        assert!(execute_operator(&OperatorType::Softmax, &[tensor_1d.clone()], &attrs).is_ok());
+        assert!(execute_operator(
+            &OperatorType::Slice,
+            std::slice::from_ref(&tensor_1d),
+            &slice_attrs
+        )
+        .is_ok());
+        assert!(execute_operator(
+            &OperatorType::Upsample,
+            std::slice::from_ref(&tensor_4d),
+            &attrs
+        )
+        .is_err());
+        assert!(execute_operator(
+            &OperatorType::MaxPool,
+            std::slice::from_ref(&tensor_4d),
+            &attrs
+        )
+        .is_ok());
+        assert!(execute_operator(
+            &OperatorType::Softmax,
+            std::slice::from_ref(&tensor_1d),
+            &attrs
+        )
+        .is_ok());
         assert!(execute_operator(
             &OperatorType::NonMaxSuppression,
             &[tensor_4d.clone(), tensor_1d.clone()],
@@ -3731,7 +3779,11 @@ mod tests {
         let result = execute_operator(&OperatorType::Sub, &[], &HashMap::new());
         assert!(result.is_err());
 
-        let result = execute_operator(&OperatorType::Sub, &[a.clone()], &HashMap::new());
+        let result = execute_operator(
+            &OperatorType::Sub,
+            std::slice::from_ref(&a),
+            &HashMap::new(),
+        );
         assert!(result.is_err());
 
         // Test with mismatched shapes
@@ -3761,7 +3813,11 @@ mod tests {
         let result = execute_operator(&OperatorType::Div, &[], &HashMap::new());
         assert!(result.is_err());
 
-        let result = execute_operator(&OperatorType::Div, &[a.clone()], &HashMap::new());
+        let result = execute_operator(
+            &OperatorType::Div,
+            std::slice::from_ref(&a),
+            &HashMap::new(),
+        );
         assert!(result.is_err());
 
         // Test with mismatched shapes
@@ -3791,7 +3847,11 @@ mod tests {
         let result = execute_operator(&OperatorType::Pow, &[], &HashMap::new());
         assert!(result.is_err());
 
-        let result = execute_operator(&OperatorType::Pow, &[a.clone()], &HashMap::new());
+        let result = execute_operator(
+            &OperatorType::Pow,
+            std::slice::from_ref(&a),
+            &HashMap::new(),
+        );
         assert!(result.is_err());
     }
 
@@ -4114,8 +4174,12 @@ mod tests {
     #[test]
     fn test_identity_op() {
         let a = Tensor::from_array(Array1::from_vec(vec![1.0, 2.0, 3.0, 4.0]));
-        let result =
-            execute_operator(&OperatorType::Identity, &[a.clone()], &HashMap::new()).unwrap();
+        let result = execute_operator(
+            &OperatorType::Identity,
+            std::slice::from_ref(&a),
+            &HashMap::new(),
+        )
+        .unwrap();
 
         assert_eq!(result.len(), 1);
         let data = result[0].data();
@@ -4386,7 +4450,10 @@ mod tests {
         ] {
             let mut attrs = HashMap::new();
             attrs.insert(name.to_string(), value.to_string());
-            assert!(execute_operator(&OperatorType::MaxPool, &[input.clone()], &attrs).is_err());
+            assert!(
+                execute_operator(&OperatorType::MaxPool, std::slice::from_ref(&input), &attrs,)
+                    .is_err()
+            );
         }
     }
 
