@@ -1189,3 +1189,81 @@ fn test_encoding_decoding_error_simulation() -> Result<()> {
 
     Ok(())
 }
+
+fn check_legacy_slice_model(
+    starts: Vec<i64>,
+    ends: Vec<i64>,
+    axes: Option<Vec<i64>>,
+    expected_shape: &[usize],
+    expected: &[f32],
+) -> Result<()> {
+    let mut attributes = vec![("starts", starts), ("ends", ends)];
+    if let Some(axes) = axes {
+        attributes.push(("axes", axes));
+    }
+    let model_proto = proto::ModelProto {
+        ir_version: Some(7),
+        opset_import: vec![proto::OperatorSetIdProto {
+            domain: Some(String::new()),
+            version: Some(9),
+        }],
+        graph: Some(proto::GraphProto {
+            name: Some("legacy_slice".to_string()),
+            input: vec![to_value_info_proto(&TensorSpec::new(
+                "input".to_string(),
+                vec![Some(2), Some(4)],
+            ))?],
+            output: vec![to_value_info_proto(&TensorSpec::new(
+                "output".to_string(),
+                expected_shape.iter().copied().map(Some).collect(),
+            ))?],
+            node: vec![proto::NodeProto {
+                name: Some("slice".to_string()),
+                op_type: Some("Slice".to_string()),
+                input: vec!["input".to_string()],
+                output: vec!["output".to_string()],
+                attribute: attributes
+                    .into_iter()
+                    .map(|(name, ints)| proto::AttributeProto {
+                        name: Some(name.to_string()),
+                        r#type: Some(proto::attribute_proto::AttributeType::Ints as i32),
+                        ints,
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let onnx_file = NamedTempFile::new()?;
+    fs::write(onnx_file.path(), model_proto.encode_to_vec())?;
+    let model = Model::from_onnx_file(onnx_file.path())?;
+    let json_file = NamedTempFile::new()?;
+    model.to_json_file(json_file.path())?;
+    let json_model = Model::from_json_file(json_file.path())?;
+    let inputs = HashMap::from([(
+        "input".to_string(),
+        Tensor::from_shape_vec(&[2, 4], (1..=8).map(|x| x as f32).collect())?,
+    )]);
+    for loaded in [model, json_model] {
+        let outputs = loaded.run(&inputs)?;
+        assert_eq!(outputs["output"].shape(), expected_shape);
+        assert_eq!(
+            outputs["output"].data().iter().copied().collect::<Vec<_>>(),
+            expected
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_legacy_slice_model_with_axes() -> Result<()> {
+    check_legacy_slice_model(vec![1], vec![3], Some(vec![1]), &[2, 2], &[2., 3., 6., 7.])
+}
+
+#[test]
+fn test_legacy_slice_model_with_default_axes() -> Result<()> {
+    check_legacy_slice_model(vec![0, 1], vec![-1, 1000], None, &[1, 3], &[2., 3., 4.])
+}

@@ -804,3 +804,50 @@ fn test_concat_op_single_input_returns_clone() {
         a.data().as_slice().unwrap()
     );
 }
+
+#[test]
+fn test_slice_op_attribute_list_formats() {
+    let data = Tensor::from_shape_vec(&[2, 4], (1..=8).map(|x| x as f32).collect()).unwrap();
+    for (starts, ends, axes) in [("[1]", "[3]", "[1]"), ("1", "3", "1"), ("1", "3", "[1]")] {
+        let attrs = HashMap::from([
+            ("starts".to_string(), starts.to_string()),
+            ("ends".to_string(), ends.to_string()),
+            ("axes".to_string(), axes.to_string()),
+        ]);
+        let result =
+            execute_operator(&OperatorType::Slice, std::slice::from_ref(&data), &attrs).unwrap();
+        assert_eq!(result[0].shape(), &[2, 2]);
+        assert_eq!(
+            result[0].data().iter().copied().collect::<Vec<_>>(),
+            vec![2., 3., 6., 7.]
+        );
+    }
+}
+
+#[test]
+fn test_slice_op_bracketed_step_attribute() {
+    let data = Tensor::from_shape_vec(&[6], vec![0., 1., 2., 3., 4., 5.]).unwrap();
+    let attrs = HashMap::from([
+        ("starts".to_string(), "5".to_string()),
+        ("ends".to_string(), "0".to_string()),
+        ("steps".to_string(), "[-2]".to_string()),
+    ]);
+    let result = execute_operator(&OperatorType::Slice, &[data], &attrs).unwrap();
+    assert_eq!(result[0].data().as_slice().unwrap(), &[5., 3., 1.]);
+}
+
+#[test]
+fn test_slice_op_rejects_malformed_optional_attributes() {
+    let data = Tensor::from_shape_vec(&[4], vec![0., 1., 2., 3.]).unwrap();
+    for attribute in ["axes", "steps"] {
+        let attrs = HashMap::from([
+            ("starts".to_string(), "0".to_string()),
+            ("ends".to_string(), "2".to_string()),
+            (attribute.to_string(), "not-an-integer".to_string()),
+        ]);
+        assert!(
+            execute_operator(&OperatorType::Slice, std::slice::from_ref(&data), &attrs).is_err(),
+            "malformed {attribute} must not silently use the default"
+        );
+    }
+}

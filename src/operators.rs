@@ -1443,19 +1443,17 @@ fn slice_op(
         Ok(vec![result])
     } else {
         // Older ONNX: parameters as attributes
-        let parse_list = |key: &str| -> Option<Vec<i64>> {
-            attributes.get(key).and_then(|val| {
-                val.split(',')
-                    .map(|s| s.trim().parse::<i64>().ok())
-                    .collect::<Option<Vec<_>>>()
-            })
+        let parse_list = |key: &str| -> Result<Option<Vec<i64>>> {
+            attributes
+                .get(key)
+                .map(|value| parse_int_array(value))
+                .transpose()
         };
 
-        // Try to get starts/ends from attributes, but provide defaults if missing
-        match (parse_list("starts"), parse_list("ends")) {
+        match (parse_list("starts")?, parse_list("ends")?) {
             (Some(starts), Some(ends)) => {
-                let axes = parse_list("axes");
-                let steps = parse_list("steps");
+                let axes = parse_list("axes")?;
+                let steps = parse_list("steps")?;
 
                 let result = inputs[0].slice(&starts, &ends, axes.as_deref(), steps.as_deref())?;
                 Ok(vec![result])
